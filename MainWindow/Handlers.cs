@@ -1,4 +1,4 @@
-﻿// =======================================================================
+// =======================================================================
 //    Handlers.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // =======================================================================
 
@@ -60,7 +60,12 @@ namespace QScalp
           // --------------------------------------------------------
 
           default:
-            if(key == cfg.u.KeyCenterSpread)
+            // Управление воспроизведением в историческом режиме
+            if(dp.IsHistoricalMode && dp.Playback != null && HandlePlaybackKey(key, e.KeyboardDevice.Modifiers))
+            {
+              // Клавиша обработана
+            }
+            else if(key == cfg.u.KeyCenterSpread)
               sv.CenterSpread();
 
             else if(key == cfg.u.KeyPageUp)
@@ -254,6 +259,96 @@ namespace QScalp
     {
       if(e.ChangedButton == MouseButton.Left && e.ClickCount > 1)
         MenuTradeLog_Click(sender, e);
+    }
+
+    // **********************************************************************
+    // *                    Управление воспроизведением                     *
+    // **********************************************************************
+
+    bool HandlePlaybackKey(Key key, ModifierKeys modifiers)
+    {
+      bool hasCtrl = (modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+      
+      switch(key)
+      {
+        case Key.Space:
+          // Пробел - пауза/воспроизведение
+          if(dp.Playback.IsPlaying)
+          {
+            if(dp.Playback.IsPaused)
+              dp.Playback.Start();
+            else
+              dp.Playback.Pause();
+          }
+          else
+          {
+            dp.Playback.Start();
+          }
+          return true;
+          
+        case Key.Left:
+          // Стрелка влево - перемотка назад
+          if(hasCtrl)
+            dp.Playback.SeekBackward(60);  // 1 минута
+          else
+            dp.Playback.SeekBackward(10);  // 10 секунд
+          return true;
+          
+        case Key.Right:
+          // Стрелка вправо - перемотка вперёд
+          if(hasCtrl)
+            dp.Playback.SeekForward(60);   // 1 минута
+          else
+            dp.Playback.SeekForward(10);   // 10 секунд
+          return true;
+          
+        case Key.Home:
+          // Home - в начало
+          dp.Playback.SeekToStart();
+          return true;
+          
+        case Key.OemPlus:
+        case Key.Add:
+          // + увеличить скорость
+          IncreasePlaybackSpeed();
+          return true;
+          
+        case Key.OemMinus:
+        case Key.Subtract:
+          // - уменьшить скорость
+          DecreasePlaybackSpeed();
+          return true;
+      }
+      
+      return false;
+    }
+
+    // **********************************************************************
+
+    void IncreasePlaybackSpeed()
+    {
+      int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+      int currentIndex = System.Array.IndexOf(speeds, dp.Playback.Speed);
+      if(currentIndex < speeds.Length - 1)
+      {
+        dp.Playback.Speed = speeds[currentIndex + 1];
+        cfg.u.PlaybackSpeed = dp.Playback.Speed;
+        UpdatePlaybackSpeedMenu();
+      }
+    }
+
+    // **********************************************************************
+
+    void DecreasePlaybackSpeed()
+    {
+      int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+      int currentIndex = System.Array.IndexOf(speeds, dp.Playback.Speed);
+      if(currentIndex > 0)
+      {
+        dp.Playback.Speed = speeds[currentIndex - 1];
+        cfg.u.PlaybackSpeed = dp.Playback.Speed;
+        UpdatePlaybackSpeedMenu();
+      }
     }
 
     // **********************************************************************

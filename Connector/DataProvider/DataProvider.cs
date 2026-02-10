@@ -22,6 +22,21 @@ namespace QScalp.Connector
     // Публичные свойства для совместимости с UI
     public bool IsConnected => _dataPoller?.IsConnected ?? false;
     public bool IsError => _dataPoller?.IsError ?? false;
+    
+    // Свойства для управления воспроизведением
+    public bool IsHistoricalMode => _dataPoller?.IsHistoricalMode ?? false;
+    public RestApi.HistoryPlayback Playback => _dataPoller?.Playback;
+    
+    /// <summary>
+    /// Устанавливает callback для очистки визуализации при перемотке назад.
+    /// </summary>
+    public void SetClearVisualizationCallback(Action clearAction)
+    {
+      if (_dataPoller?.Playback != null)
+      {
+        _dataPoller.Playback.ClearVisualization = clearAction;
+      }
+    }
 
     // **********************************************************************
 
@@ -42,6 +57,7 @@ namespace QScalp.Connector
       string secKey = cfg.u.SecCode + cfg.u.ClassCode;
       int pollInterval = cfg.u.PollInterval;
       string dataDate = cfg.u.ApiDataDate;
+      int playbackSpeed = cfg.u.PlaybackSpeed;
 
       _apiClient = new ApiClient(baseUrl, apiKey);
       
@@ -53,7 +69,8 @@ namespace QScalp.Connector
         ticker, 
         secKey,
         pollInterval,
-        dataDate);
+        dataDate,
+        playbackSpeed);
 
       _dataPoller.Start();
     }

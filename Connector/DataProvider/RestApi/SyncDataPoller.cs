@@ -12,6 +12,7 @@ namespace QScalp.Connector.RestApi
     /// <summary>
     /// Единый поллер для quotes и trades с синхронизацией по timestamp.
     /// Гарантирует правильный порядок событий для отрисовки кластеров.
+    /// В историческом режиме поддерживает эмуляцию торговой сессии.
     /// </summary>
     class SyncDataPoller : IDisposable
     {
@@ -26,9 +27,13 @@ namespace QScalp.Connector.RestApi
         private readonly string _initialDate;
         /// <summary> true = пользователь задал дату: всегда запрашиваем только эту дату, не переключаемся на timestamp.gte (иначе API вернёт данные следующих дней/онлайн и перезапишет стакан) </summary>
         private readonly bool _historicalOnly;
+        private readonly int _playbackSpeed;
         
         private CancellationTokenSource _cts;
         private Task _pollingTask;
+        
+        // Воспроизведение исторических данных
+        private HistoryPlayback _playback;
         
         // Отслеживание последних обработанных данных
         private long _lastQuoteTimestamp;
@@ -40,6 +45,12 @@ namespace QScalp.Connector.RestApi
         public bool IsConnected { get; private set; }
         public bool IsError { get; private set; }
         public DateTime DataReceived { get; private set; }
+        
+        /// <summary>Объект воспроизведения для управления из UI</summary>
+        public HistoryPlayback Playback => _playback;
+        
+        /// <summary>Режим воспроизведения исторических данных</summary>
+        public bool IsHistoricalMode => _historicalOnly;
 
         // **********************************************************************
 
@@ -50,7 +61,8 @@ namespace QScalp.Connector.RestApi
             string ticker, 
             string secKey,
             int pollIntervalMs = 100,
-            string dataDate = null)
+            string dataDate = null,
+            int playbackSpeed = 1)
         {
             _api = api;
             _receiver = receiver;
@@ -58,12 +70,20 @@ namespace QScalp.Connector.RestApi
             _ticker = ticker;
             _secKey = secKey;
             _pollIntervalMs = pollIntervalMs;
+            _playbackSpeed = playbackSpeed;
             
             // Если дата не указана или пустая - используем сегодня
             _historicalOnly = !string.IsNullOrWhiteSpace(dataDate);
             _initialDate = _historicalOnly 
                 ? dataDate.Trim() 
                 : DateTime.UtcNow.ToString("yyyy-MM-dd");
+            
+            // Создаём объект воспроизведения для исторического режима
+            if (_historicalOnly)
+            {
+                _playback = new HistoryPlayback(receiver, tmgr, secKey);
+                _playback.Speed = playbackSpeed;
+            }
         }
 
         // **********************************************************************
@@ -71,11 +91,21 @@ namespace QScalp.Connector.RestApi
         public void Start()
         {
             _cts = new CancellationTokenSource();
-            _pollingTask = Task.Run(() => PollLoopAsync(_cts.Token));
-            IsConnected = true;
             
-            // Отладка: показываем используемую дату
-            _receiver.PutMessage(new Message($"API started: date={_initialDate}, ticker={_ticker}"));
+            if (_historicalOnly)
+            {
+                // В историческом режиме - загружаем данные и запускаем воспроизведение
+                _pollingTask = Task.Run(() => LoadAndPlayHistoryAsync(_cts.Token));
+                _receiver.PutMessage(new Message($"History mode: date={_initialDate}, speed=x{(_playbackSpeed == 0 ? "Max" : _playbackSpeed.ToString())}"));
+            }
+            else
+            {
+                // В онлайн-режиме - обычный поллинг
+                _pollingTask = Task.Run(() => PollLoopAsync(_cts.Token));
+                _receiver.PutMessage(new Message($"Live mode: ticker={_ticker}"));
+            }
+            
+            IsConnected = true;
         }
 
         // **********************************************************************
@@ -83,6 +113,7 @@ namespace QScalp.Connector.RestApi
         public void Stop()
         {
             _cts?.Cancel();
+            _playback?.Stop();
             
             try
             {
@@ -94,6 +125,145 @@ namespace QScalp.Connector.RestApi
             }
             
             IsConnected = false;
+        }
+
+        // **********************************************************************
+
+        /// <summary>
+        /// Загружает исторические данные и запускает воспроизведение.
+        /// </summary>
+        private async Task LoadAndPlayHistoryAsync(CancellationToken ct)
+        {
+            ApiLog.StartSession();
+            ApiLog.Write($"LoadAndPlayHistoryAsync: ticker={_ticker}, date={_initialDate}");
+            
+            try
+            {
+                _receiver.PutMessage(new Message("Loading historical data..."));
+                ApiLog.Write("Loading historical data...");
+                
+                // Подписываемся на прогресс загрузки
+                int lastQuotesCount = 0;
+                int lastTradesCount = 0;
+                _api.LoadProgress += (type, count) =>
+                {
+                    if (type == "quotes" && count != lastQuotesCount)
+                    {
+                        lastQuotesCount = count;
+                        _receiver.PutMessage(new Message($"Loading quotes: {count:N0}..."));
+                        ApiLog.Write($"Loading quotes: {count:N0}");
+                    }
+                    else if (type == "trades" && count != lastTradesCount)
+                    {
+                        lastTradesCount = count;
+                        _receiver.PutMessage(new Message($"Loading trades: {count:N0}..."));
+                        ApiLog.Write($"Loading trades: {count:N0}");
+                    }
+                };
+                
+                // 1. Загружаем все данные за указанную дату (последовательно для лучшей индикации)
+                _receiver.PutMessage(new Message("Fetching quotes..."));
+                ApiLog.Write("Fetching quotes...");
+                var allQuotes = await _api.FetchAllQuotesAsync(_ticker, _initialDate);
+                ApiLog.Write($"Quotes fetched: {allQuotes.Length}");
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled after quotes fetch");
+                    return;
+                }
+                
+                _receiver.PutMessage(new Message("Fetching trades..."));
+                ApiLog.Write("Fetching trades...");
+                var allTrades = await _api.FetchAllTradesAsync(_ticker, _initialDate);
+                ApiLog.Write($"Trades fetched: {allTrades.Length}");
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled after trades fetch");
+                    return;
+                }
+                
+                _receiver.PutMessage(new Message($"Loaded: {allQuotes.Length} quotes, {allTrades.Length} trades"));
+                ApiLog.Write($"Total loaded: {allQuotes.Length} quotes, {allTrades.Length} trades");
+                
+                if (allQuotes.Length == 0 && allTrades.Length == 0)
+                {
+                    _receiver.PutMessage(new Message($"No data for date={_initialDate}"));
+                    ApiLog.Write($"No data for date={_initialDate}");
+                    IsError = true;
+                    return;
+                }
+                
+                // Показываем диапазон данных
+                if (allTrades.Length > 0)
+                {
+                    ApiLog.Write("Calculating data range...");
+                    var orderedTrades = allTrades.OrderBy(t => t.SipTimestamp).ToArray();
+                    var firstTrade = orderedTrades.First();
+                    var lastTrade = orderedTrades.Last();
+                    
+                    var startTime = DateTimeOffset.FromUnixTimeMilliseconds(firstTrade.SipTimestamp / 1_000_000).DateTime;
+                    var endTime = DateTimeOffset.FromUnixTimeMilliseconds(lastTrade.SipTimestamp / 1_000_000).DateTime;
+                    var minPrice = allTrades.Min(t => t.Price);
+                    var maxPrice = allTrades.Max(t => t.Price);
+                    
+                    _receiver.PutMessage(new Message($"Time range: {startTime:HH:mm:ss} - {endTime:HH:mm:ss}"));
+                    _receiver.PutMessage(new Message($"Price range: {minPrice:F2} - {maxPrice:F2}"));
+                    ApiLog.Write($"Time range: {startTime:HH:mm:ss} - {endTime:HH:mm:ss}, Price: {minPrice:F2} - {maxPrice:F2}");
+                }
+                
+                // 2. Загружаем события в playback
+                ApiLog.Write("Loading events into playback...");
+                _playback.LoadEvents(allQuotes, allTrades);
+                ApiLog.Write($"Playback events loaded: {_playback.TotalEvents}");
+                
+                // 3. Небольшая задержка перед началом воспроизведения
+                await Task.Delay(500, ct);
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled before playback start");
+                    return;
+                }
+                
+                // 4. Запускаем воспроизведение
+                _receiver.PutMessage(new Message("Starting playback..."));
+                ApiLog.Write("Starting playback...");
+                _playback.Start();
+                
+                IsError = false;
+                DataReceived = DateTime.UtcNow;
+                ApiLog.Write("Playback started successfully");
+            }
+            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                // Таймаут HTTP запроса (не от нашего CancellationToken)
+                IsError = true;
+                _receiver.PutMessage(new Message("Request timeout - data volume too large"));
+                _receiver.PutMessage(new Message("Try a shorter time period or check connection"));
+                ApiLog.Error("HTTP request timeout", ex);
+            }
+            catch (OperationCanceledException)
+            {
+                // Нормальное завершение по нашему токену
+                _receiver.PutMessage(new Message("Loading cancelled"));
+                ApiLog.Write("Loading cancelled by user");
+            }
+            catch (System.Net.Http.HttpRequestException ex)
+            {
+                IsError = true;
+                _receiver.PutMessage(new Message($"Network error: {ex.Message}"));
+                _receiver.PutMessage(new Message("Check API URL and network connection"));
+                ApiLog.Error("Network error", ex);
+            }
+            catch (Exception ex)
+            {
+                IsError = true;
+                _receiver.PutMessage(new Message($"Error loading history: {ex.GetType().Name}"));
+                _receiver.PutMessage(new Message($"{ex.Message}"));
+                ApiLog.Error($"Error loading history", ex);
+            }
         }
 
         // **********************************************************************
@@ -303,6 +473,7 @@ namespace QScalp.Connector.RestApi
         public void Dispose()
         {
             Stop();
+            _playback?.Dispose();
             _cts?.Dispose();
         }
 

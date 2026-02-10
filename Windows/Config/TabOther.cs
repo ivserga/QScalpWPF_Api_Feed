@@ -17,6 +17,22 @@ namespace QScalp.Windows
       apiKey.Password = cfg.u.ApiKey;
       pollInterval.Value = cfg.u.PollInterval;
       apiDataDate.Text = cfg.u.ApiDataDate;
+      
+      // Скорость воспроизведения
+      int speedIndex = 0;
+      switch(cfg.u.PlaybackSpeed)
+      {
+        case 1: speedIndex = 0; break;
+        case 2: speedIndex = 1; break;
+        case 5: speedIndex = 2; break;
+        case 10: speedIndex = 3; break;
+        case 50: speedIndex = 4; break;
+        case 100: speedIndex = 5; break;
+        case 200: speedIndex = 6; break;
+        case 300: speedIndex = 7; break;
+        default: speedIndex = 0; break;
+      }
+      playbackSpeed.SelectedIndex = speedIndex;
 
       // DDE (устаревший)
       ddeServerName.Text = cfg.u.DdeServerName;
@@ -61,6 +77,12 @@ namespace QScalp.Windows
       cfg.u.ApiKey = apiKey.Password;
       cfg.u.PollInterval = (int)pollInterval.Value;
       cfg.u.ApiDataDate = apiDataDate.Text.Trim();
+      
+      // Скорость воспроизведения
+      if(playbackSpeed.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag != null)
+      {
+        cfg.u.PlaybackSpeed = Convert.ToInt32(item.Tag);
+      }
 
       // DDE (устаревший)
       cfg.u.DdeServerName = ddeServerName.Text;

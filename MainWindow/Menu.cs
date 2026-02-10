@@ -1,7 +1,8 @@
-﻿// ===================================================================
+// ===================================================================
 //    Menu.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // ===================================================================
 
+using System;
 using System.Windows;
 using QScalp.Windows;
 
@@ -174,6 +175,141 @@ namespace QScalp
     // **********************************************************************
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) { Close(); }
+
+    // **********************************************************************
+    // *                          Воспроизведение                           *
+    // **********************************************************************
+
+    private void MenuPlayPause_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      if(dp.Playback.IsPlaying)
+      {
+        if(dp.Playback.IsPaused)
+          dp.Playback.Start();  // Resume
+        else
+          dp.Playback.Pause();
+      }
+      else
+      {
+        dp.Playback.Start();
+      }
+      
+      UpdatePlaybackMenu();
+    }
+
+    // **********************************************************************
+
+    private void MenuStop_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      dp.Playback.Stop();
+      UpdatePlaybackMenu();
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekBackward_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int seconds = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.SeekBackward(seconds);
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekForward_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int seconds = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.SeekForward(seconds);
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekToStart_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      dp.Playback.SeekToStart();
+    }
+
+    // **********************************************************************
+
+    private void MenuSpeed_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int speed = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.Speed = speed;
+      cfg.u.PlaybackSpeed = speed;
+      
+      UpdatePlaybackSpeedMenu();
+    }
+
+    // **********************************************************************
+
+    void UpdatePlaybackMenu()
+    {
+      if(dp.Playback == null)
+      {
+        menuPlayback.IsEnabled = false;
+        return;
+      }
+      
+      menuPlayback.IsEnabled = true;
+      
+      if(dp.Playback.IsPlaying)
+      {
+        menuPlayPause.Header = dp.Playback.IsPaused ? "Продолжить" : "Пауза";
+        menuStop.IsEnabled = true;
+      }
+      else
+      {
+        menuPlayPause.Header = "Старт";
+        menuStop.IsEnabled = false;
+      }
+      
+      UpdatePlaybackSpeedMenu();
+    }
+
+    // **********************************************************************
+
+    void UpdatePlaybackSpeedMenu()
+    {
+      int speed = dp.Playback?.Speed ?? cfg.u.PlaybackSpeed;
+      
+      menuSpeedX1.IsChecked = speed == 1;
+      menuSpeedX2.IsChecked = speed == 2;
+      menuSpeedX5.IsChecked = speed == 5;
+      menuSpeedX10.IsChecked = speed == 10;
+      menuSpeedX50.IsChecked = speed == 50;
+      menuSpeedX100.IsChecked = speed == 100;
+      menuSpeedX200.IsChecked = speed == 200;
+      menuSpeedX300.IsChecked = speed == 300;
+    }
 
     // **********************************************************************
     // *                           TradeLog Window                          *

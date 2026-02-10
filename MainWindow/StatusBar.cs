@@ -55,6 +55,9 @@ namespace QScalp
       // Обновляем статус единого REST API поллера
       UpdateDataProviderStatus(stockStatus);
       UpdateDataProviderStatus(tradesStatus);
+      
+      // Обновляем статус воспроизведения
+      UpdatePlaybackStatus();
 
       // ------------------------------------------------------------
 
@@ -131,6 +134,88 @@ namespace QScalp
         cfg.u.WorkSize = 0;
 
       wsStatus.Text = "( " + cfg.u.WorkSize.ToString("N", cfg.BaseCulture) + " )";
+    }
+
+    // **********************************************************************
+
+    void UpdatePlaybackStatus()
+    {
+      if(dp.IsHistoricalMode && dp.Playback != null)
+      {
+        playbackStatusItem.Visibility = System.Windows.Visibility.Visible;
+        
+        string speedStr = dp.Playback.Speed == 0 ? "Max" : $"x{dp.Playback.Speed}";
+        
+        if(dp.Playback.IsPlaying)
+        {
+          if(dp.Playback.IsPaused)
+          {
+            playbackStatus.Text = $"\x23F8 {dp.Playback.Progress}%";
+            playbackStatusItem.ToolTip = $"Пауза [{speedStr}] - клик для продолжения";
+          }
+          else
+          {
+            playbackStatus.Text = $"\x25B6 {dp.Playback.Progress}%";
+            string timeStr = dp.Playback.CurrentTime?.ToString("HH:mm:ss") ?? "--:--:--";
+            playbackStatusItem.ToolTip = $"Воспроизведение [{speedStr}] {timeStr}";
+          }
+        }
+        else
+        {
+          if(dp.Playback.TotalEvents > 0)
+          {
+            playbackStatus.Text = $"\x25A0 {dp.Playback.TotalEvents}";
+            playbackStatusItem.ToolTip = $"Остановлено [{speedStr}] - клик для запуска";
+          }
+          else
+          {
+            playbackStatus.Text = "\x23F3";
+            playbackStatusItem.ToolTip = "Загрузка данных...";
+          }
+        }
+      }
+      else
+      {
+        playbackStatusItem.Visibility = System.Windows.Visibility.Collapsed;
+      }
+    }
+
+    // **********************************************************************
+
+    void PlaybackStatusClick(object sender, MouseButtonEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      if(e.ChangedButton == MouseButton.Left)
+      {
+        // Левый клик - старт/пауза
+        if(dp.Playback.IsPlaying)
+        {
+          if(dp.Playback.IsPaused)
+            dp.Playback.Start();
+          else
+            dp.Playback.Pause();
+        }
+        else
+        {
+          dp.Playback.Start();
+        }
+      }
+      else if(e.ChangedButton == MouseButton.Right)
+      {
+        // Правый клик - стоп
+        dp.Playback.Stop();
+      }
+      else if(e.ChangedButton == MouseButton.Middle)
+      {
+        // Средний клик - переключить скорость
+        int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+        int currentIndex = Array.IndexOf(speeds, dp.Playback.Speed);
+        int nextIndex = (currentIndex + 1) % speeds.Length;
+        dp.Playback.Speed = speeds[nextIndex];
+        cfg.u.PlaybackSpeed = speeds[nextIndex];
+      }
     }
 
     // **********************************************************************

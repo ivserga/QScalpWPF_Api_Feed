@@ -1,4 +1,4 @@
-﻿// ==========================================================================
+// ==========================================================================
 //  MainWindow.xaml.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // ==========================================================================
 
@@ -67,15 +67,37 @@ namespace QScalp
     {
       tmgr.Connect();
       dp.Connect();
+      
+      // Устанавливаем callback для очистки визуализации при перемотке
+      dp.SetClearVisualizationCallback(() => 
+      {
+        Dispatcher.Invoke(() => sv.ClearAllData());
+      });
 
       SbUpdaterTick(sender, e);
       UpdateWorkSize(0);
 
       InitTradeLogWindow();
+      InitPlaybackMenu();
 
       sbUpdater.Start();
 
       this.Activate();
+    }
+
+    // **********************************************************************
+
+    void InitPlaybackMenu()
+    {
+      // Показываем/скрываем меню воспроизведения в зависимости от режима
+      menuPlayback.Visibility = dp.IsHistoricalMode 
+        ? System.Windows.Visibility.Visible 
+        : System.Windows.Visibility.Collapsed;
+      
+      if(dp.IsHistoricalMode)
+      {
+        UpdatePlaybackMenu();
+      }
     }
 
     // **********************************************************************

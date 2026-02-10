@@ -1,19 +1,17 @@
-# Отчет об изменениях в проекте QScalpWPF_Api
+# Git Changes Report
 
-**Дата генерации:** 2026-01-26
-**Статус:** Изменения не закоммичены в git
+**Дата генерации:** 2026-02-10  
+**Команда:** `git diff HEAD`  
+**Всего измененных файлов:** 13
 
 ---
 
 ## Обзор изменений
 
-Основные изменения связаны с миграцией с DDE на REST API для получения рыночных данных. Добавлена новая инфраструктура для работы с REST API, включая синхронизацию данных котировок и сделок.
+Основные изменения касаются двух этапов развития проекта:
 
-**Дополнительные изменения:**
-- Добавлена поддержка горизонтального скроллинга кластеров (режим "без ограничения")
-- Добавлена логика очистки данных при изменении даты загрузки
-- Улучшена обработка исторического режима (загрузка данных за конкретную дату)
-- Добавлены отладочные сообщения для мониторинга работы API
+1. **Миграция с DDE на REST API** - замена устаревшего DDE-протокола на современный REST API для получения рыночных данных
+2. **Добавление функциональности воспроизведения исторических данных** - возможность загружать исторические котировки и сделки, а затем воспроизводить их с регулируемой скоростью
 
 ---
 
@@ -21,7 +19,7 @@
 
 ### 1. Config/UserSettings.cs
 
-**Тип изменений:** Добавление новых полей настроек REST API
+**Категория:** Настройки пользователя
 
 #### Было:
 ```csharp
@@ -50,6 +48,8 @@
     public string ApiKey = "";
     public int PollInterval = 100;  // ms (единый интервал для синхронизированного поллинга)
     public string ApiDataDate = "";  // Дата загрузки данных (YYYY-MM-DD), пусто = сегодня
+    public int PlaybackSpeed = 1;   // Скорость воспроизведения исторических данных (1, 2, 5, 10, 50, 100, 200, 300)
+    public int QuoteSampling = 10;  // Прореживание котировок: 1=все, 10=каждая 10-я, 100=каждая 100-я
 
     // **********************************************************************
     // *                              QUIK & DDE                            *
@@ -62,17 +62,15 @@
     public string DdeServerName = cfg.ProgName;
 ```
 
-**Описание:** Добавлены новые настройки для REST API:
-- `ApiBaseUrl` - базовый URL API
-- `ApiKey` - ключ авторизации
-- `PollInterval` - интервал опроса в миллисекундах
-- `ApiDataDate` - дата для загрузки исторических данных
+**Описание:**
+- Добавлены настройки REST API: `ApiBaseUrl`, `ApiKey`, `PollInterval`, `ApiDataDate`
+- Добавлены настройки воспроизведения: `PlaybackSpeed`, `QuoteSampling`
 
 ---
 
 ### 2. Connector/DataProvider/DataProvider.cs
 
-**Тип изменений:** Полный рефакторинг с заменой DDE на REST API
+**Категория:** Провайдер данных
 
 #### Было:
 ```csharp
@@ -153,6 +151,21 @@ namespace QScalp.Connector
     // Публичные свойства для совместимости с UI
     public bool IsConnected => _dataPoller?.IsConnected ?? false;
     public bool IsError => _dataPoller?.IsError ?? false;
+    
+    // Свойства для управления воспроизведением
+    public bool IsHistoricalMode => _dataPoller?.IsHistoricalMode ?? false;
+    public RestApi.HistoryPlayback Playback => _dataPoller?.Playback;
+    
+    /// <summary>
+    /// Устанавливает callback для очистки визуализации при перемотке назад.
+    /// </summary>
+    public void SetClearVisualizationCallback(Action clearAction)
+    {
+      if (_dataPoller?.Playback != null)
+      {
+        _dataPoller.Playback.ClearVisualization = clearAction;
+      }
+    }
 
     // **********************************************************************
 
@@ -173,6 +186,7 @@ namespace QScalp.Connector
       string secKey = cfg.u.SecCode + cfg.u.ClassCode;
       int pollInterval = cfg.u.PollInterval;
       string dataDate = cfg.u.ApiDataDate;
+      int playbackSpeed = cfg.u.PlaybackSpeed;
 
       _apiClient = new ApiClient(baseUrl, apiKey);
       
@@ -184,7 +198,8 @@ namespace QScalp.Connector
         ticker, 
         secKey,
         pollInterval,
-        dataDate);
+        dataDate,
+        playbackSpeed);
 
       _dataPoller.Start();
     }
@@ -212,1274 +227,1244 @@ namespace QScalp.Connector
 }
 ```
 
-**Описание:** Полная замена DDE-архитектуры на REST API:
-- Класс теперь реализует `IDisposable`
-- Удалены свойства `StockChannel` и `TradesChannel`
-- Добавлены свойства `IsConnected` и `IsError` для совместимости с UI
-- Вместо `XlDdeServer` используется `ApiClient` и `SyncDataPoller`
-- Метод `Connect()` теперь создает REST API клиент и запускает синхронизированный поллер
-- Метод `Disconnect()` останавливает поллер и освобождает ресурсы
+**Описание:**
+- Полная замена DDE-архитектуры на REST API
+- Добавлены свойства для управления воспроизведением: `IsHistoricalMode`, `Playback`
+- Добавлен метод `SetClearVisualizationCallback` для очистки визуализации при перемотке
 
 ---
 
-### 3. MainWindow/CfgChecker.cs
+### 3. Connector/DataProvider/RestApi/ApiClient.cs
 
-**Тип изменений:** Обновление логики проверки изменений конфигурации
+**Категория:** API клиент
 
 #### Было:
 ```csharp
-        if(cfg.u.DdeServerName != old.DdeServerName)
-        {
-          dp.Disconnect();
-          dp.Connect();
-        }
+// Файл не существовал
 ```
 
 #### Стало:
 ```csharp
-        if(cfg.u.DdeServerName != old.DdeServerName
-          || cfg.u.ApiBaseUrl != old.ApiBaseUrl
-          || cfg.u.ApiKey != old.ApiKey
-          || cfg.u.PollInterval != old.PollInterval)
-        {
-          dp.Disconnect();
-          dp.Connect();
-        }
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
 
-        // При изменении даты данных - очищаем и перезагружаем
-        if(cfg.u.ApiDataDate != old.ApiDataDate)
+namespace QScalp.Connector.RestApi
+{
+    class ApiClient : IDisposable
+    {
+        private readonly HttpClient _http;
+        private readonly string _baseUrl;
+        
+        public ApiClient(string baseUrl, string apiKey)
         {
-          sv.PutMessage(new Message($"Date changed: '{old.ApiDataDate}' -> '{cfg.u.ApiDataDate}'"));
-          dp.Disconnect();
-          sv.ClearAllData();
-          dp.Connect();
+            _baseUrl = baseUrl.TrimEnd('/');
+            _http = new HttpClient();
+            
+            if (!string.IsNullOrEmpty(apiKey))
+                _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+            
+            // Увеличенный таймаут для загрузки больших объёмов исторических данных
+            _http.Timeout = TimeSpan.FromMinutes(5);
         }
+        
+        /// <summary>Событие прогресса загрузки (количество загруженных записей)</summary>
+        public event Action<string, int> LoadProgress;
+        
+        public async Task<QuoteResult[]> FetchAllQuotesAsync(string ticker, string date)
+        {
+            var timestampParam = date;
+            var limit = 5000;
+            var url = BuildUrl($"/v3/quotes/{ticker}", timestampParam, limit);
+            var list = new List<QuoteResult>();
+            int pageNum = 0;
+            
+            QuotesResponse r = await GetAsync<QuotesResponse>(url);
+            if (r?.Results != null) 
+            {
+                list.AddRange(r.Results);
+                pageNum++;
+            }
+            
+            while (!string.IsNullOrEmpty(r?.NextUrl))
+            {
+                r = await GetByUrlAsync<QuotesResponse>(r.NextUrl);
+                if (r?.Results != null) 
+                {
+                    list.AddRange(r.Results);
+                    pageNum++;
+                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
+                    if (pageNum % 50 == 0)
+                        LoadProgress?.Invoke("quotes", list.Count);
+                }
+            }
+            
+            LoadProgress?.Invoke("quotes", list.Count);
+            return list.ToArray();
+        }
+        
+        public async Task<TradeResult[]> FetchAllTradesAsync(string ticker, string date)
+        {
+            var timestampParam = date;
+            var limit = 5000;
+            var url = BuildUrl($"/v3/trades/{ticker}", timestampParam, limit);
+            var list = new List<TradeResult>();
+            int pageNum = 0;
+            
+            TradesResponse r = await GetAsync<TradesResponse>(url);
+            if (r?.Results != null) 
+            {
+                list.AddRange(r.Results);
+                pageNum++;
+            }
+            
+            while (!string.IsNullOrEmpty(r?.NextUrl))
+            {
+                r = await GetByUrlAsync<TradesResponse>(r.NextUrl);
+                if (r?.Results != null) 
+                {
+                    list.AddRange(r.Results);
+                    pageNum++;
+                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
+                    if (pageNum % 50 == 0)
+                        LoadProgress?.Invoke("trades", list.Count);
+                }
+            }
+            
+            LoadProgress?.Invoke("trades", list.Count);
+            return list.ToArray();
+        }
+        
+        public void Dispose()
+        {
+            _http?.Dispose();
+        }
+    }
+}
 ```
 
 **Описание:**
-- Добавлена проверка изменений настроек REST API для переподключения при изменении параметров API
-- Добавлена отдельная логика для обработки изменения даты данных (`ApiDataDate`):
-  - Отображается сообщение о смене даты
-  - Отключается провайдер данных
-  - Очищаются все данные через `sv.ClearAllData()`
-  - Переподключается провайдер данных
+- Новый HTTP-клиент для REST API
+- Таймаут увеличен до 5 минут для загрузки больших объёмов исторических данных
+- Добавлено событие `LoadProgress` для отслеживания прогресса загрузки
 
 ---
 
-### 4. MainWindow/StatusBar.cs
+### 4. Connector/DataProvider/RestApi/SyncDataPoller.cs
 
-**Тип изменений:** Обновление логики отображения статуса каналов данных
+**Категория:** Поллер данных
 
 #### Было:
 ```csharp
-using QScalp.Connector;
-using XlDde;
-
-namespace QScalp
-{
-  partial class MainWindow
-  {
-    // **********************************************************************
-
-    void UpdateChannelStatus(StatusBarItem sbItem, XlDdeChannel dc)
-    {
-      Brush b;
-
-      if(dc.IsConnected)
-        if(dc.IsError)
-        {
-          b = Brushes.Red;
-          dc.ResetError();
-        }
-        else if(DateTime.UtcNow.Ticks - dc.DataReceived.Ticks
-          < cfg.s.DdeDataTimeout * TimeSpan.TicksPerMillisecond)
-        {
-          b = Brushes.LimeGreen;
-        }
-        else
-        {
-          b = Brushes.Orange;
-        }
-      else
-        b = Brushes.Silver;
-
-      if(sbItem.Background != b)
-        sbItem.Background = b;
-    }
-
-    // **********************************************************************
-
-    void SbUpdaterTick(object sender, EventArgs e)
-    {
-      // ... код ...
-
-      UpdateChannelStatus(stockStatus, dp.StockChannel);
-      UpdateChannelStatus(tradesStatus, dp.TradesChannel);
-
-      // ... код ...
-    }
+// Файл не существовал
 ```
 
 #### Стало:
 ```csharp
-using QScalp.Connector;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Linq;
 
-namespace QScalp
+namespace QScalp.Connector.RestApi
 {
-  partial class MainWindow
-  {
+    /// <summary>
+    /// Единый поллер для quotes и trades с синхронизацией по timestamp.
+    /// Гарантирует правильный порядок событий для отрисовки кластеров.
+    /// В историческом режиме поддерживает эмуляцию торговой сессии.
+    /// </summary>
+    class SyncDataPoller : IDisposable
+    {
+        private readonly ApiClient _api;
+        private readonly IDataReceiver _receiver;
+        private readonly TermManager _tmgr;
+        private readonly string _ticker;
+        private readonly string _secKey;
+        private readonly int _pollIntervalMs;
+        private readonly string _initialDate;
+        /// <summary> true = пользователь задал дату: всегда запрашиваем только эту дату, не переключаемся на timestamp.gte (иначе API вернёт данные следующих дней/онлайн и перезапишет стакан) </summary>
+        private readonly bool _historicalOnly;
+        private readonly int _playbackSpeed;
+        
+        private CancellationTokenSource _cts;
+        private Task _pollingTask;
+        
+        // Воспроизведение исторических данных
+        private HistoryPlayback _playback;
+        
+        // Отслеживание последних обработанных данных
+        private long _lastQuoteTimestamp;
+        private long _lastTradeTimestamp;
+        private int _lastTradeSequence;
+
+        public bool IsConnected { get; private set; }
+        public bool IsError { get; private set; }
+        public DateTime DataReceived { get; private set; }
+        
+        /// <summary>Объект воспроизведения для управления из UI</summary>
+        public HistoryPlayback Playback => _playback;
+        
+        /// <summary>Режим воспроизведения исторических данных</summary>
+        public bool IsHistoricalMode => _historicalOnly;
+
+        public SyncDataPoller(
+            ApiClient api, 
+            IDataReceiver receiver, 
+            TermManager tmgr,
+            string ticker, 
+            string secKey,
+            int pollIntervalMs = 100,
+            string dataDate = null,
+            int playbackSpeed = 1)
+        {
+            _api = api;
+            _receiver = receiver;
+            _tmgr = tmgr;
+            _ticker = ticker;
+            _secKey = secKey;
+            _pollIntervalMs = pollIntervalMs;
+            _playbackSpeed = playbackSpeed;
+            
+            // Если дата не указана или пустая - используем сегодня
+            _historicalOnly = !string.IsNullOrWhiteSpace(dataDate);
+            _initialDate = _historicalOnly 
+                ? dataDate.Trim() 
+                : DateTime.UtcNow.ToString("yyyy-MM-dd");
+            
+            // Создаём объект воспроизведения для исторического режима
+            if (_historicalOnly)
+            {
+                _playback = new HistoryPlayback(receiver, tmgr, secKey);
+                _playback.Speed = playbackSpeed;
+            }
+        }
+
+        public void Start()
+        {
+            _cts = new CancellationTokenSource();
+            
+            if (_historicalOnly)
+            {
+                // В историческом режиме - загружаем данные и запускаем воспроизведение
+                _pollingTask = Task.Run(() => LoadAndPlayHistoryAsync(_cts.Token));
+                _receiver.PutMessage(new Message($"History mode: date={_initialDate}, speed=x{(_playbackSpeed == 0 ? "Max" : _playbackSpeed.ToString())}"));
+            }
+            else
+            {
+                // В онлайн-режиме - обычный поллинг
+                _pollingTask = Task.Run(() => PollLoopAsync(_cts.Token));
+                _receiver.PutMessage(new Message($"Live mode: ticker={_ticker}"));
+            }
+            
+            IsConnected = true;
+        }
+
+        public void Stop()
+        {
+            _cts?.Cancel();
+            _playback?.Stop();
+            
+            try
+            {
+                _pollingTask?.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (AggregateException) { }
+            
+            IsConnected = false;
+        }
+
+        /// <summary>
+        /// Загружает исторические данные и запускает воспроизведение.
+        /// </summary>
+        private async Task LoadAndPlayHistoryAsync(CancellationToken ct)
+        {
+            ApiLog.StartSession();
+            ApiLog.Write($"LoadAndPlayHistoryAsync: ticker={_ticker}, date={_initialDate}");
+            
+            try
+            {
+                _receiver.PutMessage(new Message("Loading historical data..."));
+                ApiLog.Write("Loading historical data...");
+                
+                // Подписываемся на прогресс загрузки
+                int lastQuotesCount = 0;
+                int lastTradesCount = 0;
+                _api.LoadProgress += (type, count) =>
+                {
+                    if (type == "quotes" && count != lastQuotesCount)
+                    {
+                        lastQuotesCount = count;
+                        _receiver.PutMessage(new Message($"Loading quotes: {count:N0}..."));
+                        ApiLog.Write($"Loading quotes: {count:N0}");
+                    }
+                    else if (type == "trades" && count != lastTradesCount)
+                    {
+                        lastTradesCount = count;
+                        _receiver.PutMessage(new Message($"Loading trades: {count:N0}..."));
+                        ApiLog.Write($"Loading trades: {count:N0}");
+                    }
+                };
+                
+                // 1. Загружаем все данные за указанную дату (последовательно для лучшей индикации)
+                _receiver.PutMessage(new Message("Fetching quotes..."));
+                ApiLog.Write("Fetching quotes...");
+                var allQuotes = await _api.FetchAllQuotesAsync(_ticker, _initialDate);
+                ApiLog.Write($"Quotes fetched: {allQuotes.Length}");
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled after quotes fetch");
+                    return;
+                }
+                
+                _receiver.PutMessage(new Message("Fetching trades..."));
+                ApiLog.Write("Fetching trades...");
+                var allTrades = await _api.FetchAllTradesAsync(_ticker, _initialDate);
+                ApiLog.Write($"Trades fetched: {allTrades.Length}");
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled after trades fetch");
+                    return;
+                }
+                
+                _receiver.PutMessage(new Message($"Loaded: {allQuotes.Length} quotes, {allTrades.Length} trades"));
+                ApiLog.Write($"Total loaded: {allQuotes.Length} quotes, {allTrades.Length} trades");
+                
+                if (allQuotes.Length == 0 && allTrades.Length == 0)
+                {
+                    _receiver.PutMessage(new Message($"No data for date={_initialDate}"));
+                    ApiLog.Write($"No data for date={_initialDate}");
+                    IsError = true;
+                    return;
+                }
+                
+                // Показываем диапазон данных
+                if (allTrades.Length > 0)
+                {
+                    ApiLog.Write("Calculating data range...");
+                    var orderedTrades = allTrades.OrderBy(t => t.SipTimestamp).ToArray();
+                    var firstTrade = orderedTrades.First();
+                    var lastTrade = orderedTrades.Last();
+                    
+                    var startTime = DateTimeOffset.FromUnixTimeMilliseconds(firstTrade.SipTimestamp / 1_000_000).DateTime;
+                    var endTime = DateTimeOffset.FromUnixTimeMilliseconds(lastTrade.SipTimestamp / 1_000_000).DateTime;
+                    var minPrice = allTrades.Min(t => t.Price);
+                    var maxPrice = allTrades.Max(t => t.Price);
+                    
+                    _receiver.PutMessage(new Message($"Time range: {startTime:HH:mm:ss} - {endTime:HH:mm:ss}"));
+                    _receiver.PutMessage(new Message($"Price range: {minPrice:F2} - {maxPrice:F2}"));
+                    ApiLog.Write($"Time range: {startTime:HH:mm:ss} - {endTime:HH:mm:ss}, Price: {minPrice:F2} - {maxPrice:F2}");
+                }
+                
+                // 2. Загружаем события в playback
+                ApiLog.Write("Loading events into playback...");
+                _playback.LoadEvents(allQuotes, allTrades);
+                ApiLog.Write($"Playback events loaded: {_playback.TotalEvents}");
+                
+                // 3. Небольшая задержка перед началом воспроизведения
+                await Task.Delay(500, ct);
+                
+                if (ct.IsCancellationRequested)
+                {
+                    ApiLog.Write("Cancelled before playback start");
+                    return;
+                }
+                
+                // 4. Запускаем воспроизведение
+                _receiver.PutMessage(new Message("Starting playback..."));
+                ApiLog.Write("Starting playback...");
+                _playback.Start();
+                
+                IsError = false;
+                DataReceived = DateTime.UtcNow;
+                ApiLog.Write("Playback started successfully");
+            }
+            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                // Таймаут HTTP запроса (не от нашего CancellationToken)
+                IsError = true;
+                _receiver.PutMessage(new Message("Request timeout - data volume too large"));
+                _receiver.PutMessage(new Message("Try a shorter time period or check connection"));
+                ApiLog.Error("HTTP request timeout", ex);
+            }
+            catch (OperationCanceledException)
+            {
+                // Нормальное завершение по нашему токену
+                _receiver.PutMessage(new Message("Loading cancelled"));
+                ApiLog.Write("Loading cancelled by user");
+            }
+            catch (System.Net.Http.HttpRequestException ex)
+            {
+                IsError = true;
+                _receiver.PutMessage(new Message($"Network error: {ex.Message}"));
+                _receiver.PutMessage(new Message("Check API URL and network connection"));
+                ApiLog.Error("Network error", ex);
+            }
+            catch (Exception ex)
+            {
+                IsError = true;
+                _receiver.PutMessage(new Message($"Error loading history: {ex.GetType().Name}"));
+                _receiver.PutMessage(new Message($"{ex.Message}"));
+                ApiLog.Error($"Error loading history", ex);
+            }
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _playback?.Dispose();
+            _cts?.Dispose();
+        }
+    }
+}
+```
+
+**Описание:**
+- Новый синхронизированный поллер для quotes и trades
+- Поддержка исторического режима с воспроизведением данных
+- Метод `LoadAndPlayHistoryAsync()` для загрузки и воспроизведения исторических данных
+
+---
+
+### 5. MainWindow/Handlers.cs
+
+**Категория:** Обработчики событий
+
+#### Было:
+```csharp
+﻿// =======================================================================
+//    Handlers.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// =======================================================================
+
+// ... код ...
+
+          default:
+            if(key == cfg.u.KeyCenterSpread)
+              sv.CenterSpread();
+```
+
+#### Стало:
+```csharp
+// =======================================================================
+//    Handlers.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// =======================================================================
+
+// ... код ...
+
+          default:
+            // Управление воспроизведением в историческом режиме
+            if(dp.IsHistoricalMode && dp.Playback != null && HandlePlaybackKey(key, e.KeyboardDevice.Modifiers))
+            {
+              // Клавиша обработана
+            }
+            else if(key == cfg.u.KeyCenterSpread)
+              sv.CenterSpread();
+
+// ... код ...
+
+    // **********************************************************************
+    // *                    Управление воспроизведением                     *
     // **********************************************************************
 
-    void UpdateDataProviderStatus(StatusBarItem sbItem)
+    bool HandlePlaybackKey(Key key, ModifierKeys modifiers)
     {
-      Brush b;
-
-      if(dp.IsConnected)
-        if(dp.IsError)
-        {
-          b = Brushes.Red;
-        }
-        else
-        {
-          b = Brushes.LimeGreen;
-        }
-      else
-        b = Brushes.Silver;
-
-      if(sbItem.Background != b)
-        sbItem.Background = b;
+      bool hasCtrl = (modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+      
+      switch(key)
+      {
+        case Key.Space:
+          // Пробел - пауза/воспроизведение
+          if(dp.Playback.IsPlaying)
+          {
+            if(dp.Playback.IsPaused)
+              dp.Playback.Start();
+            else
+              dp.Playback.Pause();
+          }
+          else
+          {
+            dp.Playback.Start();
+          }
+          return true;
+          
+        case Key.Left:
+          // Стрелка влево - перемотка назад
+          if(hasCtrl)
+            dp.Playback.SeekBackward(60);  // 1 минута
+          else
+            dp.Playback.SeekBackward(10);  // 10 секунд
+          return true;
+          
+        case Key.Right:
+          // Стрелка вправо - перемотка вперёд
+          if(hasCtrl)
+            dp.Playback.SeekForward(60);   // 1 минута
+          else
+            dp.Playback.SeekForward(10);   // 10 секунд
+          return true;
+          
+        case Key.Home:
+          // Home - в начало
+          dp.Playback.SeekToStart();
+          return true;
+          
+        case Key.OemPlus:
+        case Key.Add:
+          // + увеличить скорость
+          IncreasePlaybackSpeed();
+          return true;
+          
+        case Key.OemMinus:
+        case Key.Subtract:
+          // - уменьшить скорость
+          DecreasePlaybackSpeed();
+          return true;
+      }
+      
+      return false;
     }
 
     // **********************************************************************
 
-    void SbUpdaterTick(object sender, EventArgs e)
+    void IncreasePlaybackSpeed()
     {
-      // ... код ...
+      int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+      int currentIndex = System.Array.IndexOf(speeds, dp.Playback.Speed);
+      if(currentIndex < speeds.Length - 1)
+      {
+        dp.Playback.Speed = speeds[currentIndex + 1];
+        cfg.u.PlaybackSpeed = dp.Playback.Speed;
+        UpdatePlaybackSpeedMenu();
+      }
+    }
 
+    // **********************************************************************
+
+    void DecreasePlaybackSpeed()
+    {
+      int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+      int currentIndex = System.Array.IndexOf(speeds, dp.Playback.Speed);
+      if(currentIndex > 0)
+      {
+        dp.Playback.Speed = speeds[currentIndex - 1];
+        cfg.u.PlaybackSpeed = dp.Playback.Speed;
+        UpdatePlaybackSpeedMenu();
+      }
+    }
+```
+
+**Описание:**
+- Удален BOM из начала файла
+- Добавлена обработка клавиш для управления воспроизведением:
+  - `Space` - пауза/воспроизведение
+  - `Left`/`Ctrl+Left` - перемотка назад (10 сек / 1 мин)
+  - `Right`/`Ctrl+Right` - перемотка вперёд (10 сек / 1 мин)
+  - `Home` - в начало
+  - `+`/`-` - изменение скорости
+
+---
+
+### 6. MainWindow/MainWindow.xaml
+
+**Категория:** XAML разметка
+
+#### Было:
+```xml
+﻿<!-- =========================================================================== -->
+<!--    MainWindow.xaml (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/    -->
+<!-- =========================================================================== -->
+
+<!-- ... код ... -->
+                        <Separator/>
+                        <MenuItem Name="menuEmulation" Header="Эмуляция терминала" IsCheckable="True" Click="MenuEmulation_Click" />
+                        <Separator/>
+                        <MenuItem Header="Очистить">
+```
+
+#### Стало:
+```xml
+<!-- =========================================================================== -->
+<!--    MainWindow.xaml (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/    -->
+<!-- =========================================================================== -->
+
+<!-- ... код ... -->
+                        <Separator/>
+                        <MenuItem Name="menuEmulation" Header="Эмуляция терминала" IsCheckable="True" Click="MenuEmulation_Click" />
+                        <Separator/>
+                        <MenuItem Header="Воспроизведение" Name="menuPlayback">
+                            <MenuItem Name="menuPlayPause" Header="Старт" Click="MenuPlayPause_Click" InputGestureText="Space" />
+                            <MenuItem Name="menuStop" Header="Стоп" Click="MenuStop_Click" />
+                            <Separator/>
+                            <MenuItem Name="menuSeekBackward60" Header="Назад 1 мин" Click="MenuSeekBackward_Click" Tag="60" InputGestureText="Ctrl+Left" />
+                            <MenuItem Name="menuSeekBackward10" Header="Назад 10 сек" Click="MenuSeekBackward_Click" Tag="10" InputGestureText="Left" />
+                            <MenuItem Name="menuSeekForward10" Header="Вперёд 10 сек" Click="MenuSeekForward_Click" Tag="10" InputGestureText="Right" />
+                            <MenuItem Name="menuSeekForward60" Header="Вперёд 1 мин" Click="MenuSeekForward_Click" Tag="60" InputGestureText="Ctrl+Right" />
+                            <MenuItem Name="menuSeekToStart" Header="В начало" Click="MenuSeekToStart_Click" InputGestureText="Home" />
+                            <Separator/>
+                            <MenuItem Name="menuSpeedX1" Header="x1" IsCheckable="True" Click="MenuSpeed_Click" Tag="1" />
+                            <MenuItem Name="menuSpeedX2" Header="x2" IsCheckable="True" Click="MenuSpeed_Click" Tag="2" />
+                            <MenuItem Name="menuSpeedX5" Header="x5" IsCheckable="True" Click="MenuSpeed_Click" Tag="5" />
+                            <MenuItem Name="menuSpeedX10" Header="x10" IsCheckable="True" Click="MenuSpeed_Click" Tag="10" />
+                            <MenuItem Name="menuSpeedX50" Header="x50" IsCheckable="True" Click="MenuSpeed_Click" Tag="50" />
+                            <MenuItem Name="menuSpeedX100" Header="x100" IsCheckable="True" Click="MenuSpeed_Click" Tag="100" />
+                            <MenuItem Name="menuSpeedX200" Header="x200" IsCheckable="True" Click="MenuSpeed_Click" Tag="200" />
+                            <MenuItem Name="menuSpeedX300" Header="x300" IsCheckable="True" Click="MenuSpeed_Click" Tag="300" />
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Очистить">
+```
+
+**StatusBar изменения:**
+```xml
+<!-- Было: -->
+<StatusBarItem Grid.Column="4" HorizontalAlignment="Center" ToolTip="Автоцентровка спреда">
+    <TextBlock Name="acStatus" />
+</StatusBarItem>
+
+<!-- Стало: -->
+<StatusBarItem Grid.Column="4" HorizontalAlignment="Center" ToolTip="Воспроизведение" Name="playbackStatusItem" MouseDown="PlaybackStatusClick" Visibility="Collapsed">
+    <TextBlock Name="playbackStatus" />
+</StatusBarItem>
+<StatusBarItem Grid.Column="5" HorizontalAlignment="Center" ToolTip="Автоцентровка спреда">
+    <TextBlock Name="acStatus" />
+</StatusBarItem>
+```
+
+**Описание:**
+- Удален BOM из начала файла
+- Добавлено меню "Воспроизведение" с пунктами управления
+- Добавлен статус воспроизведения в StatusBar
+
+---
+
+### 7. MainWindow/MainWindow.xaml.cs
+
+**Категория:** Код главного окна
+
+#### Было:
+```csharp
+﻿// ==========================================================================
+//  MainWindow.xaml.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// ==========================================================================
+
+// ... код ...
+      tmgr.Connect();
+      dp.Connect();
+
+      SbUpdaterTick(sender, e);
+      UpdateWorkSize(0);
+
+      InitTradeLogWindow();
+
+      sbUpdater.Start();
+```
+
+#### Стало:
+```csharp
+// ==========================================================================
+//  MainWindow.xaml.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// ==========================================================================
+
+// ... код ...
+      tmgr.Connect();
+      dp.Connect();
+      
+      // Устанавливаем callback для очистки визуализации при перемотке
+      dp.SetClearVisualizationCallback(() => 
+      {
+        Dispatcher.Invoke(() => sv.ClearAllData());
+      });
+
+      SbUpdaterTick(sender, e);
+      UpdateWorkSize(0);
+
+      InitTradeLogWindow();
+      InitPlaybackMenu();
+
+      sbUpdater.Start();
+
+// ... код ...
+
+    void InitPlaybackMenu()
+    {
+      // Показываем/скрываем меню воспроизведения в зависимости от режима
+      menuPlayback.Visibility = dp.IsHistoricalMode 
+        ? System.Windows.Visibility.Visible 
+        : System.Windows.Visibility.Collapsed;
+      
+      if(dp.IsHistoricalMode)
+      {
+        UpdatePlaybackMenu();
+      }
+    }
+```
+
+**Описание:**
+- Удален BOM из начала файла
+- Добавлен callback для очистки визуализации при перемотке
+- Добавлен метод `InitPlaybackMenu()` для инициализации меню воспроизведения
+
+---
+
+### 8. MainWindow/Menu.cs
+
+**Категория:** Меню
+
+#### Было:
+```csharp
+﻿// ===================================================================
+//    Menu.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// ===================================================================
+
+using System.Windows;
+using QScalp.Windows;
+
+// ... код ...
+
+    private void MenuExit_Click(object sender, RoutedEventArgs e) { Close(); }
+```
+
+#### Стало:
+```csharp
+// ===================================================================
+//    Menu.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
+// ===================================================================
+
+using System;
+using System.Windows;
+using QScalp.Windows;
+
+// ... код ...
+
+    private void MenuExit_Click(object sender, RoutedEventArgs e) { Close(); }
+
+    // **********************************************************************
+    // *                          Воспроизведение                           *
+    // **********************************************************************
+
+    private void MenuPlayPause_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      if(dp.Playback.IsPlaying)
+      {
+        if(dp.Playback.IsPaused)
+          dp.Playback.Start();  // Resume
+        else
+          dp.Playback.Pause();
+      }
+      else
+      {
+        dp.Playback.Start();
+      }
+      
+      UpdatePlaybackMenu();
+    }
+
+    // **********************************************************************
+
+    private void MenuStop_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      dp.Playback.Stop();
+      UpdatePlaybackMenu();
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekBackward_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int seconds = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.SeekBackward(seconds);
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekForward_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int seconds = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.SeekForward(seconds);
+    }
+
+    // **********************************************************************
+
+    private void MenuSeekToStart_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      dp.Playback.SeekToStart();
+    }
+
+    // **********************************************************************
+
+    private void MenuSpeed_Click(object sender, RoutedEventArgs e)
+    {
+      if(dp.Playback == null)
+        return;
+        
+      var menuItem = sender as System.Windows.Controls.MenuItem;
+      if(menuItem?.Tag == null)
+        return;
+        
+      int speed = Convert.ToInt32(menuItem.Tag);
+      dp.Playback.Speed = speed;
+      cfg.u.PlaybackSpeed = speed;
+      
+      UpdatePlaybackSpeedMenu();
+    }
+
+    // **********************************************************************
+
+    void UpdatePlaybackMenu()
+    {
+      if(dp.Playback == null)
+      {
+        menuPlayback.IsEnabled = false;
+        return;
+      }
+      
+      menuPlayback.IsEnabled = true;
+      
+      if(dp.Playback.IsPlaying)
+      {
+        menuPlayPause.Header = dp.Playback.IsPaused ? "Продолжить" : "Пауза";
+        menuStop.IsEnabled = true;
+      }
+      else
+      {
+        menuPlayPause.Header = "Старт";
+        menuStop.IsEnabled = false;
+      }
+      
+      UpdatePlaybackSpeedMenu();
+    }
+
+    // **********************************************************************
+
+    void UpdatePlaybackSpeedMenu()
+    {
+      int speed = dp.Playback?.Speed ?? cfg.u.PlaybackSpeed;
+      
+      menuSpeedX1.IsChecked = speed == 1;
+      menuSpeedX2.IsChecked = speed == 2;
+      menuSpeedX5.IsChecked = speed == 5;
+      menuSpeedX10.IsChecked = speed == 10;
+      menuSpeedX50.IsChecked = speed == 50;
+      menuSpeedX100.IsChecked = speed == 100;
+      menuSpeedX200.IsChecked = speed == 200;
+      menuSpeedX300.IsChecked = speed == 300;
+    }
+```
+
+**Описание:**
+- Удален BOM из начала файла
+- Добавлен `using System;`
+- Добавлены обработчики событий для меню воспроизведения
+
+---
+
+### 9. MainWindow/StatusBar.cs
+
+**Категория:** Статус-бар
+
+#### Было:
+```csharp
+// ... код ...
       // Обновляем статус единого REST API поллера
       UpdateDataProviderStatus(stockStatus);
       UpdateDataProviderStatus(tradesStatus);
-
-      // ... код ...
-```
-
-**Описание:** Обновлен метод отображения статуса для работы с новым интерфейсом `DataProvider`:
-- Метод переименован в `UpdateDataProviderStatus`
-- Удалена зависимость от `XlDdeChannel`
-- Метод теперь принимает только `StatusBarItem` и использует свойства `dp.IsConnected` и `dp.IsError`
-- Удалена проверка таймаута данных (теперь обрабатывается внутри `SyncDataPoller`)
-- Обновлены вызовы в `SbUpdaterTick` для использования нового метода
-
----
-
-### 5. QScalp.csproj
-
-**Тип изменений:** Добавление новых файлов проекта и NuGet пакетов
-
-#### Было:
-```xml
-  <ItemGroup>
-    <Reference Include="NDde">
-      <HintPath>NDde\Binary\NDde.dll</HintPath>
-    </Reference>
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="System" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xaml" />
-    <Reference Include="System.XML" />
-    <Reference Include="WindowsBase" />
-  </ItemGroup>
-```
-
-#### Стало:
-```xml
-  <ItemGroup>
-    <Reference Include="NDde">
-      <HintPath>NDde\Binary\NDde.dll</HintPath>
-    </Reference>
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
-    <Reference Include="System" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xaml" />
-    <Reference Include="System.XML" />
-    <Reference Include="WindowsBase" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json">
-      <Version>13.0.3</Version>
-    </PackageReference>
-  </ItemGroup>
-```
-
-**Добавлены новые файлы компиляции:**
-```xml
-    <Compile Include="Connector\DataProvider\RestApi\ApiClient.cs" />
-    <Compile Include="Connector\DataProvider\RestApi\ApiModels.cs" />
-    <Compile Include="Connector\DataProvider\RestApi\DataSynchronizer.cs" />
-    <Compile Include="Connector\DataProvider\RestApi\SyncDataPoller.cs" />
-```
-
-**Описание:**
-- Добавлена ссылка на `System.Net.Http` для HTTP-запросов
-- Добавлен NuGet пакет `Newtonsoft.Json` версии 13.0.3 через `PackageReference`
-- Добавлены 4 новых файла REST API инфраструктуры
-
----
-
-### 6. View/Clusters/ClustersElement.cs
-
-**Тип изменений:** Добавление метода очистки кластеров и поддержка горизонтального скроллинга
-
-#### Было:
-```csharp
-    public void Rebuild()
-    {
-      vmgr.TradesQueue.UnregisterHandler(this);
-      vmgr.UnregisterObject(this);
-
-      nClusters = cfg.u.Clusters;
-
-      if(clusters.Children.Count > nClusters)
-      {
-        int removeCount = clusters.Children.Count - nClusters;
-
-        clusters.Children.RemoveRange(0, removeCount);
-        legends.Children.RemoveRange(0, removeCount);
-      }
-
-      UpdateWidth();
-
-      if(nClusters > 0)
-      {
-        vmgr.RegisterObject(this);
-        vmgr.TradesQueue.RegisterHandler(this, cfg.u.SecCode + cfg.u.ClassCode);
-
-        hGrid.Rebuild();
-        RebuildClusters();
-        RebuildLegends();
-
-        UpdateOffset();
-      }
-
-      if(clusters.Children.Count == 0)
-      {
-        cCluster = new Cluster(vmgr, DateTime.MaxValue);
-        cLegend = new Legend(vmgr, cCluster);
-      }
-    }
 ```
 
 #### Стало:
 ```csharp
-    public void Rebuild()
-    {
-      vmgr.TradesQueue.UnregisterHandler(this);
-      vmgr.UnregisterObject(this);
-
-      nClusters = cfg.u.Clusters;
-      if(nClusters > 0)
-        displayClusters = nClusters;
-      // При nClusters <= 0 displayClusters вычисляется в UpdateWidth() на основе 2/3 ширины окна
-
-      // Удаляем лишние кластеры только если задано ограничение (nClusters > 0)
-      if(nClusters > 0 && clusters.Children.Count > nClusters)
-      {
-        int removeCount = clusters.Children.Count - nClusters;
-
-        clusters.Children.RemoveRange(0, removeCount);
-        legends.Children.RemoveRange(0, removeCount);
-      }
-
-      UpdateWidth();
-
-      // Регистрируем обработчики всегда (и при nClusters <= 0 тоже — режим "без ограничения")
-      vmgr.RegisterObject(this);
-      vmgr.TradesQueue.RegisterHandler(this, cfg.u.SecCode + cfg.u.ClassCode);
-
-      hGrid.Rebuild();
-      RebuildClusters();
-      RebuildLegends();
-
-      UpdateOffset();
-
-      if(clusters.Children.Count == 0)
-      {
-        cCluster = new Cluster(vmgr, DateTime.MaxValue);
-        cLegend = new Legend(vmgr, cCluster);
-      }
-    }
-
-    // **********************************************************************
-
-    /// <summary>
-    /// Полностью очищает все кластеры (для перезагрузки данных)
-    /// </summary>
-    public void Clear()
-    {
-      clusters.Children.Clear();
-      legends.Children.Clear();
-
-      cCluster = new Cluster(vmgr, DateTime.MaxValue);
-      cLegend = new Legend(vmgr, cCluster);
-
-      // Сбрасываем горизонтальный скроллинг
-      hScrollOffset = 0;
-      UpdateOffset();
-
-      Obsolete = false;
-    }
-
-    // **********************************************************************
-
-    /// <summary>
-    /// Горизонтальный скроллинг кластеров
-    /// </summary>
-    public void HorizontalScroll(double delta)
-    {
-      if(nClusters > 0 || clusters.Children.Count <= displayClusters)
-        return; // Скроллинг только в режиме "без ограничения" и когда есть скрытые кластеры
-
-      // Вычисляем максимальное смещение (сколько кластеров скрыто слева)
-      int hiddenClusters = clusters.Children.Count - displayClusters;
-      maxHScrollOffset = hiddenClusters * cfg.u.ClusterWidth;
-
-      hScrollOffset += delta;
-
-      // Ограничиваем скроллинг
-      if(hScrollOffset > maxHScrollOffset)
-        hScrollOffset = maxHScrollOffset;
-      if(hScrollOffset < 0)
-        hScrollOffset = 0;
-
-      UpdateOffset();
-    }
-
-    /// <summary>
-    /// Сбросить горизонтальный скроллинг к последним кластерам
-    /// </summary>
-    public void ResetHorizontalScroll()
-    {
-      hScrollOffset = 0;
-      UpdateOffset();
-    }
-
-    /// <summary>
-    /// Проверяет, доступен ли горизонтальный скроллинг
-    /// </summary>
-    public bool CanHorizontalScroll
-    {
-      get { return nClusters <= 0 && clusters.Children.Count > displayClusters; }
-    }
-
-    // **********************************************************************
-
-    protected override void OnMouseWheel(MouseWheelEventArgs e)
-    {
-      // Shift + колесико = горизонтальный скроллинг
-      if(Keyboard.Modifiers == ModifierKeys.Shift && CanHorizontalScroll)
-      {
-        HorizontalScroll(-Math.Sign(e.Delta) * cfg.u.ClusterWidth);
-        e.Handled = true;
-      }
-
-      base.OnMouseWheel(e);
-    }
-
-    // **********************************************************************
-```
-
-**Описание:**
-- Добавлен новый метод `Clear()` для полной очистки кластеров при перезагрузке данных за другую дату
-- Добавлена поддержка режима "без ограничения" (`nClusters <= 0`):
-  - Добавлено поле `displayClusters` для вычисления количества отображаемых кластеров
-  - Добавлены свойства `ClusterCount` и `DisplayClusterCount`
-  - В режиме "без ограничения" ширина области кластеров вычисляется как 2/3 ширины окна
-- Добавлен горизонтальный скроллинг кластеров:
-  - Метод `HorizontalScroll(double delta)` для прокрутки
-  - Метод `ResetHorizontalScroll()` для сброса к последним кластерам
-  - Свойство `CanHorizontalScroll` для проверки доступности скроллинга
-  - Обработка Shift+колесико мыши для горизонтального скроллинга
-
----
-
-### 7. View/Clusters/Legend.cs
-
-**Тип изменений:** Удаление BOM из начала файла
-
-#### Было:
-```csharp
-﻿// ======================================================================
-```
-
-#### Стало:
-```csharp
-// ======================================================================
-```
-
-**Описание:** Удален BOM (Byte Order Mark) из начала файла.
-
----
-
-### 8. View/DataQueue.cs
-
-**Тип изменений:** Добавление методов очистки очередей
-
-#### Было (класс DataQueue<T>):
-```csharp
-    public int Length { get { return queue.Count; } }
-
-    // --------------------------------------------------------------
-  }
-```
-
-#### Стало (класс DataQueue<T>):
-```csharp
-    public int Length { get { return queue.Count; } }
-
-    // --------------------------------------------------------------
-
-    public void Clear()
-    {
-      lock(queue)
-        queue.Clear();
-    }
-
-    // --------------------------------------------------------------
-  }
-```
-
-#### Было (класс TradesQueue):
-```csharp
-    public void UpdateHandlers()
-    {
-      DataExist = false;
-
-      lock(tbList)
-      {
-        foreach(TradeBinding tb in tbList.Values)
-          while(tb.Queue.Count > 0)
-          {
-            for(int i = 0; i < tb.Handlers.Count; i++)
-              tb.Handlers[i].PutTrade(tb.Queue.First.Value, tb.Queue.Count);
-
-            tb.Queue.RemoveFirst();
-          }
-      }
-    }
-
-    // --------------------------------------------------------------
-  }
-```
-
-#### Стало (класс TradesQueue):
-```csharp
-    public void UpdateHandlers()
-    {
-      DataExist = false;
-
-      lock(tbList)
-      {
-        foreach(TradeBinding tb in tbList.Values)
-          while(tb.Queue.Count > 0)
-          {
-            for(int i = 0; i < tb.Handlers.Count; i++)
-              tb.Handlers[i].PutTrade(tb.Queue.First.Value, tb.Queue.Count);
-
-            tb.Queue.RemoveFirst();
-          }
-      }
-    }
-
-    // --------------------------------------------------------------
-
-    public void Clear()
-    {
-      lock(tbList)
-      {
-        foreach(TradeBinding tb in tbList.Values)
-          tb.Queue.Clear();
-        
-        DataExist = false;
-      }
-    }
-
-    // --------------------------------------------------------------
-  }
-```
-
-**Описание:** Добавлены методы `Clear()` в классы `DataQueue<T>` и `TradesQueue` для очистки очередей при перезагрузке данных.
-
----
-
-### 9. View/ScalpView.cs
-
-**Тип изменений:** Добавление методов очистки данных, флага пересборки стакана и поддержка горизонтального скроллинга
-
-#### Было:
-```csharp
-    ViewManager vmgr;
-
-    // **********************************************************************
-
-    public delegate void OnQuoteClickDelegate(MouseButtonEventArgs e, int price);
-```
-
-#### Стало:
-```csharp
-    ViewManager vmgr;
-
-    // Флаг для пересборки стакана после очистки данных
-    bool _needsStockRebuild;
-
-    // **********************************************************************
-
-    public delegate void OnQuoteClickDelegate(MouseButtonEventArgs e, int price);
-```
-
-#### Было (метод ResizeClusters):
-```csharp
-    void ResizeClusters(double delta)
-    {
-      if(cfg.u.Clusters > 0)
-      {
-        delta = Math.Round(delta / cfg.u.Clusters);
-
-        if(delta * cfg.u.Clusters > eGraph.ActualWidth)
-          delta = Math.Floor(eGraph.ActualWidth / cfg.u.Clusters);
-
-        cfg.u.ClusterWidth += delta;
-        eClusters.UpdateWidth();
-      }
-    }
-```
-
-#### Стало (метод ResizeClusters):
-```csharp
-    void ResizeClusters(double delta)
-    {
-      // При режиме "без ограничения" (Clusters <= 0) используем фактическое количество кластеров
-      int clusterCount = cfg.u.Clusters > 0 ? cfg.u.Clusters : eClusters.DisplayClusterCount;
+// ... код ...
+      // Обновляем статус единого REST API поллера
+      UpdateDataProviderStatus(stockStatus);
+      UpdateDataProviderStatus(tradesStatus);
       
-      if(clusterCount > 0)
-      {
-        delta = Math.Round(delta / clusterCount);
+      // Обновляем статус воспроизведения
+      UpdatePlaybackStatus();
 
-        if(delta * clusterCount > eGraph.ActualWidth)
-          delta = Math.Floor(eGraph.ActualWidth / clusterCount);
+// ... код ...
 
-        cfg.u.ClusterWidth += delta;
-        eClusters.UpdateWidth();
-      }
-    }
-```
-
-#### Было (метод OnRenderSizeChanged):
-```csharp
-    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+    void UpdatePlaybackStatus()
     {
-      if(sizeInfo.WidthChanged)
+      if(dp.IsHistoricalMode && dp.Playback != null)
       {
-        highlighter.SetWidth(ActualWidth);
-        messenger.SetWidth(ActualWidth);
-      }
-
-      base.OnRenderSizeChanged(sizeInfo);
-    }
-```
-
-#### Стало (метод OnRenderSizeChanged):
-```csharp
-    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
-    {
-      if(sizeInfo.WidthChanged)
-      {
-        highlighter.SetWidth(ActualWidth);
-        messenger.SetWidth(ActualWidth);
+        playbackStatusItem.Visibility = System.Windows.Visibility.Visible;
         
-        // При режиме "без ограничения" (Clusters <= 0) пересчитываем ширину области кластеров
-        if(cfg.u.Clusters <= 0)
-          eClusters.UpdateWidth();
-      }
-
-      base.OnRenderSizeChanged(sizeInfo);
-    }
-```
-
-#### Было (метод PutStock):
-```csharp
-    public void PutStock(Quote[] quotes, Spread spread)
-    {
-      eStock.PutQuotes(quotes);
-
-      if(vmgr.Ask != spread.Ask || vmgr.Bid != spread.Bid)
-      {
-        vmgr.SetSpread(spread);
-        vmgr.SpreadsQueue.Enqueue(spread);
-      }
-    }
-```
-
-#### Стало (метод PutStock):
-```csharp
-    public void PutStock(Quote[] quotes, Spread spread)
-    {
-      eStock.PutQuotes(quotes);
-
-      if(vmgr.Ask != spread.Ask || vmgr.Bid != spread.Bid)
-      {
-        vmgr.SetSpread(spread);
-        vmgr.SpreadsQueue.Enqueue(spread);
+        string speedStr = dp.Playback.Speed == 0 ? "Max" : $"x{dp.Playback.Speed}";
         
-        // После очистки данных нужно пересоздать ячейки стакана для новых цен
-        if(_needsStockRebuild)
+        if(dp.Playback.IsPlaying)
         {
-          _needsStockRebuild = false;
-          int newAsk = spread.Ask;
-          int newBid = spread.Bid;
-          
-          // UI операции должны выполняться в UI потоке
-          Dispatcher.BeginInvoke(new Action(() =>
+          if(dp.Playback.IsPaused)
           {
-            // Обновляем спред на актуальные значения (могли измениться пока ждали Dispatcher)
-            vmgr.SetSpread(new Spread(newAsk, newBid));
-            vmgr.CenterSpread();
-            vmgr.MsgQueue.Enqueue(new Message($"Stock rebuild: Ask={newAsk}, Bid={newBid}"));
-            eStock.Rebuild();
-            
-            // Принудительно помечаем для обновления
-            eStock.InvalidateVisual();
-          }));
+            playbackStatus.Text = $"\x23F8 {dp.Playback.Progress}%";
+            playbackStatusItem.ToolTip = $"Пауза [{speedStr}] - клик для продолжения";
+          }
+          else
+          {
+            playbackStatus.Text = $"\x25B6 {dp.Playback.Progress}%";
+            string timeStr = dp.Playback.CurrentTime?.ToString("HH:mm:ss") ?? "--:--:--";
+            playbackStatusItem.ToolTip = $"Воспроизведение [{speedStr}] {timeStr}";
+          }
         }
-      }
-    }
-```
-
-#### Было (метод OnMouseWheel):
-```csharp
-    protected override void OnMouseWheel(MouseWheelEventArgs e)
-    {
-      Page(Math.Sign(e.Delta));
-      e.Handled = true;
-      
-      base.OnMouseWheel(e);
-    }
-```
-
-#### Стало (метод OnMouseWheel):
-```csharp
-    protected override void OnMouseWheel(MouseWheelEventArgs e)
-    {
-      // Shift + колесико = горизонтальный скроллинг кластеров
-      if(Keyboard.Modifiers == ModifierKeys.Shift && eClusters.CanHorizontalScroll)
-      {
-        eClusters.HorizontalScroll(-Math.Sign(e.Delta) * cfg.u.ClusterWidth);
-        e.Handled = true;
+        else
+        {
+          if(dp.Playback.TotalEvents > 0)
+          {
+            playbackStatus.Text = $"\x25A0 {dp.Playback.TotalEvents}";
+            playbackStatusItem.ToolTip = $"Остановлено [{speedStr}] - клик для запуска";
+          }
+          else
+          {
+            playbackStatus.Text = "\x23F3";
+            playbackStatusItem.ToolTip = "Загрузка данных...";
+          }
+        }
       }
       else
       {
-        Page(Math.Sign(e.Delta));
-        e.Handled = true;
+        playbackStatusItem.Visibility = System.Windows.Visibility.Collapsed;
       }
-      
-      base.OnMouseWheel(e);
     }
-```
-
-#### Было (конец класса):
-```csharp
-    public void ClearOrders() { vmgr.OrdersList.Clear(); }
-    public void ClearGuide() { eGraph.ClearGuide(); }
-    public void ClearLevels() { highlighter.Clear(); }
 
     // **********************************************************************
-  }
-}
-```
 
-#### Стало (конец класса):
-```csharp
-    public void ClearOrders() { vmgr.OrdersList.Clear(); }
-    public void ClearGuide() { eGraph.ClearGuide(); }
-    public void ClearLevels() { highlighter.Clear(); }
-
-    /// <summary>
-    /// Полностью очищает кластеры (для перезагрузки данных за другую дату)
-    /// </summary>
-    public void ClearClusters() { eClusters.Clear(); }
-
-    /// <summary>
-    /// Очищает котировки стакана
-    /// </summary>
-    public void ClearStock() { eStock.ClearQuotes(); }
-
-    /// <summary>
-    /// Сбрасывает состояние данных для загрузки новых
-    /// </summary>
-    public void ResetDataState() { vmgr.ResetDataState(); }
-
-    /// <summary>
-    /// Полная очистка всех данных для перезагрузки за другую дату
-    /// </summary>
-    public void ClearAllData()
+    void PlaybackStatusClick(object sender, MouseButtonEventArgs e)
     {
-      // Сначала очищаем очереди чтобы старые данные не обрабатывались
-      vmgr.ClearQueues();
-      
-      ClearClusters();
-      ClearStock();
-      ClearGuide();
-      ResetDataState();
-      
-      // Флаг для пересборки стакана при получении первых новых данных
-      _needsStockRebuild = true;
+      if(dp.Playback == null)
+        return;
+        
+      if(e.ChangedButton == MouseButton.Left)
+      {
+        // Левый клик - старт/пауза
+        if(dp.Playback.IsPlaying)
+        {
+          if(dp.Playback.IsPaused)
+            dp.Playback.Start();
+          else
+            dp.Playback.Pause();
+        }
+        else
+        {
+          dp.Playback.Start();
+        }
+      }
+      else if(e.ChangedButton == MouseButton.Right)
+      {
+        // Правый клик - стоп
+        dp.Playback.Stop();
+      }
+      else if(e.ChangedButton == MouseButton.Middle)
+      {
+        // Средний клик - переключить скорость
+        int[] speeds = { 1, 2, 5, 10, 50, 100, 200, 300 };
+        int currentIndex = Array.IndexOf(speeds, dp.Playback.Speed);
+        int nextIndex = (currentIndex + 1) % speeds.Length;
+        dp.Playback.Speed = speeds[nextIndex];
+        cfg.u.PlaybackSpeed = speeds[nextIndex];
+      }
     }
-
-    // **********************************************************************
-  }
-}
 ```
 
 **Описание:**
-- Добавлено поле `_needsStockRebuild` для отслеживания необходимости пересборки стакана
-- Обновлен метод `ResizeClusters()` для поддержки режима "без ограничения"
-- Обновлен метод `OnRenderSizeChanged()` для пересчета ширины области кластеров в режиме "без ограничения"
-- Обновлен метод `PutStock()` для пересборки стакана после очистки данных
-- Обновлен метод `OnMouseWheel()` для поддержки горизонтального скроллинга кластеров (Shift+колесико)
-- Добавлены новые методы: `ClearClusters()`, `ClearStock()`, `ResetDataState()`, `ClearAllData()`
+- Добавлен метод `UpdatePlaybackStatus()` для отображения статуса воспроизведения
+- Добавлен метод `PlaybackStatusClick()` для обработки кликов по статусу
 
 ---
 
-### 10. View/Stock/StockElement.cs
+### 10. QScalp.csproj
 
-**Тип изменений:** Добавление метода очистки котировок
-
-#### Было:
-```csharp
-    public void PutQuotes(Quote[] quotes) { stock.PutQuotes(quotes); }
-
-    // **********************************************************************
-
-    public void UpdateWidth()
-```
-
-#### Стало:
-```csharp
-    public void PutQuotes(Quote[] quotes) { stock.PutQuotes(quotes); }
-
-    public void ClearQuotes() { stock.Clear(); }
-
-    // **********************************************************************
-
-    public void UpdateWidth()
-```
-
-**Описание:** Добавлен метод `ClearQuotes()` для очистки котировок стакана.
-
----
-
-### 11. View/Stock/VStock.cs
-
-**Тип изменений:** Добавление метода очистки
-
-#### Было:
-```csharp
-    public void Rebuild()
-    {
-      Children.Clear();
-      UpdateOffset();
-    }
-
-    // **********************************************************************
-  }
-}
-```
-
-#### Стало:
-```csharp
-    public void Rebuild()
-    {
-      Children.Clear();
-      UpdateOffset();
-    }
-
-    // **********************************************************************
-
-    /// <summary>
-    /// Очищает котировки (для перезагрузки данных за другую дату)
-    /// </summary>
-    public void Clear()
-    {
-      quotes = null;
-      Obsolete = true;
-    }
-
-    // **********************************************************************
-  }
-}
-```
-
-**Описание:** Добавлен метод `Clear()` для очистки котировок при перезагрузке данных.
-
----
-
-### 12. View/ViewManager.cs
-
-**Тип изменений:** Добавление методов сброса состояния и очистки очередей
-
-#### Было:
-```csharp
-    public void RestoreCentering()
-    {
-      if(--acDsblCount == 0)
-        AutoCentering = acLastState;
-    }
-
-    // **********************************************************************
-  }
-}
-```
-
-#### Стало:
-```csharp
-    public void RestoreCentering()
-    {
-      if(--acDsblCount == 0)
-        AutoCentering = acLastState;
-    }
-
-    // **********************************************************************
-
-    /// <summary>
-    /// Сбрасывает состояние данных (Ask/Bid) для загрузки новых
-    /// </summary>
-    public void ResetDataState()
-    {
-      Ask = 0;
-      Bid = 0;
-    }
-
-    // **********************************************************************
-
-    /// <summary>
-    /// Очищает все очереди данных (для перезагрузки за другую дату)
-    /// </summary>
-    public void ClearQueues()
-    {
-      // Очищаем очереди чтобы старые данные не обрабатывались
-      TradesQueue.Clear();
-      SpreadsQueue.Clear();
-    }
-
-    // **********************************************************************
-  }
-}
-```
-
-**Описание:** Добавлены методы:
-- `ResetDataState()` - сбрасывает значения Ask и Bid
-- `ClearQueues()` - очищает очереди TradesQueue и SpreadsQueue
-
----
-
-### 13. Windows/Config/ConfigWindow.xaml
-
-**Тип изменений:** Добавление секции настроек REST API в UI
+**Категория:** Проект
 
 #### Было:
 ```xml
-            <TabItem Header="Прочее">
-                <StackPanel>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+```
 
-                    <GroupBox Header="Получение данных">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="100" />
-                            </Grid.ColumnDefinitions>
-                            <Label Grid.Column="0" Content="Имя DDE сервера" />
-                            <TextBox Grid.Column="1" Name="ddeServerName" />
-                        </Grid>
+#### Стало:
+```xml
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+```
+
+**Добавлены конфигурации x64:**
+```xml
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+```
+
+**Добавлены новые файлы:**
+```xml
+    <Compile Include="Connector\DataProvider\RestApi\ApiLog.cs" />
+    <Compile Include="Connector\DataProvider\RestApi\ApiModels.cs" />
+    <Compile Include="Connector\DataProvider\RestApi\DataSynchronizer.cs" />
+    <Compile Include="Connector\DataProvider\RestApi\SyncDataPoller.cs" />
+    <Compile Include="Connector\DataProvider\RestApi\HistoryPlayback.cs" />
+```
+
+**Описание:**
+- Изменена платформа по умолчанию с x86 на x64
+- Добавлены конфигурации Debug|x64 и Release|x64
+- Добавлены новые файлы REST API инфраструктуры
+
+---
+
+### 11. QScalp.sln
+
+**Категория:** Решение
+
+#### Было:
+```xml
+
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QScalp", "QScalp.csproj", "{BBCA5733-8C49-4281-933D-061BE1FC59B3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x86.ActiveCfg = Debug|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x86.Build.0 = Debug|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x86.ActiveCfg = Release|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+```
+
+#### Стало:
+```xml
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QScalp", "QScalp.csproj", "{BBCA5733-8C49-4281-933D-061BE1FC59B3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x64.ActiveCfg = Debug|x64
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x64.Build.0 = Debug|x64
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x86.ActiveCfg = Debug|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Debug|x86.Build.0 = Debug|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x64.ActiveCfg = Release|x64
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x64.Build.0 = Release|x64
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x86.ActiveCfg = Release|x86
+		{BBCA5733-8C49-4281-933D-061BE1FC59B3}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+```
+
+**Описание:**
+- Удален BOM из начала файла
+- Добавлены конфигурации Debug|x64 и Release|x64
+
+---
+
+### 12. Windows/Config/ConfigWindow.xaml
+
+**Категория:** XAML разметка окна настроек
+
+#### Было:
+```xml
+<!-- ... код ... -->
+                                <Label Grid.Column="3" Content="Дата данных" />
+                                <TextBox Grid.Column="4" Name="apiDataDate" ToolTip="Формат YYYY-MM-DD, пусто = сегодня" />
+                            </Grid>
+                        </StackPanel>
                     </GroupBox>
 ```
 
 #### Стало:
 ```xml
-            <TabItem Header="Прочее">
-                <StackPanel>
-
-                    <GroupBox Header="REST API">
-                        <StackPanel>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Label Grid.Column="0" Content="URL сервера" />
-                                <TextBox Grid.Column="1" Name="apiBaseUrl" />
-                            </Grid>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Label Grid.Column="0" Content="API ключ" />
-                                <PasswordBox Grid.Column="1" Name="apiKey" />
+<!-- ... код ... -->
+                                <Label Grid.Column="3" Content="Дата данных" />
+                                <TextBox Grid.Column="4" Name="apiDataDate" ToolTip="Формат YYYY-MM-DD, пусто = сегодня" />
                             </Grid>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="90" />
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="100" />
                                 </Grid.ColumnDefinitions>
-                                <Label Grid.Column="0" Content="Интервал опроса" />
-                                <uc:NumUpDown Grid.Column="1" x:Name="pollInterval" Increment="50" MinValue="50" MaxValue="5000" />
-                                <Label Grid.Column="2" Content="мс" />
-                                <Label Grid.Column="3" Content="Дата данных" />
-                                <TextBox Grid.Column="4" Name="apiDataDate" ToolTip="Формат YYYY-MM-DD, пусто = сегодня" />
+                                <Label Grid.Column="0" Content="Скорость воспроизведения" />
+                                <ComboBox Grid.Column="1" Name="playbackSpeed" ToolTip="Скорость воспроизведения исторических данных">
+                                    <ComboBoxItem Content="x1" Tag="1" />
+                                    <ComboBoxItem Content="x2" Tag="2" />
+                                    <ComboBoxItem Content="x5" Tag="5" />
+                                    <ComboBoxItem Content="x10" Tag="10" />
+                                    <ComboBoxItem Content="x50" Tag="50" />
+                                    <ComboBoxItem Content="x100" Tag="100" />
+                                    <ComboBoxItem Content="x200" Tag="200" />
+                                    <ComboBoxItem Content="x300" Tag="300" />
+                                </ComboBox>
+                                <Label Grid.Column="2" Content="(для исторических данных)" />
                             </Grid>
                         </StackPanel>
                     </GroupBox>
-
-                    <GroupBox Header="DDE (устаревший)">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="100" />
-                            </Grid.ColumnDefinitions>
-                            <Label Grid.Column="0" Content="Имя DDE сервера" />
-                            <TextBox Grid.Column="1" Name="ddeServerName" />
-                        </Grid>
-                    </GroupBox>
 ```
 
-**Описание:** 
-- Добавлена новая секция "REST API" с полями: URL сервера, API ключ, интервал опроса, дата данных
-- Секция "Получение данных" переименована в "DDE (устаревший)"
+**Описание:**
+- Добавлен ComboBox для выбора скорости воспроизведения (x1, x2, x5, x10, x50, x100, x200, x300)
 
 ---
 
-### 14. Windows/Config/TabOther.cs
+### 13. Windows/Config/TabOther.cs
 
-**Тип изменений:** Добавление инициализации и сохранения настроек REST API
+**Категория:** Вкладка настроек "Другое"
 
 #### Было:
 ```csharp
-    void InitOther()
-    {
-      ddeServerName.Text = cfg.u.DdeServerName;
-
-      enableQuikLog.IsChecked = cfg.u.EnableQuikLog;
-      acceptAllTrades.IsChecked = cfg.u.AcceptAllTrades;
-```
-
-#### Стало:
-```csharp
-    void InitOther()
-    {
-      // REST API
-      apiBaseUrl.Text = cfg.u.ApiBaseUrl;
+// ... код ...
       apiKey.Password = cfg.u.ApiKey;
       pollInterval.Value = cfg.u.PollInterval;
       apiDataDate.Text = cfg.u.ApiDataDate;
 
       // DDE (устаревший)
       ddeServerName.Text = cfg.u.DdeServerName;
-
-      enableQuikLog.IsChecked = cfg.u.EnableQuikLog;
-      acceptAllTrades.IsChecked = cfg.u.AcceptAllTrades;
-```
-
-#### Было:
-```csharp
-    void ApplyOther()
-    {
-      cfg.u.DdeServerName = ddeServerName.Text;
-
-      cfg.u.EnableQuikLog = enableQuikLog.IsChecked == true;
-      cfg.u.AcceptAllTrades = acceptAllTrades.IsChecked == true;
 ```
 
 #### Стало:
 ```csharp
-    void ApplyOther()
-    {
-      // REST API
-      cfg.u.ApiBaseUrl = apiBaseUrl.Text;
+// ... код ...
+      apiKey.Password = cfg.u.ApiKey;
+      pollInterval.Value = cfg.u.PollInterval;
+      apiDataDate.Text = cfg.u.ApiDataDate;
+      
+      // Скорость воспроизведения
+      int speedIndex = 0;
+      switch(cfg.u.PlaybackSpeed)
+      {
+        case 1: speedIndex = 0; break;
+        case 2: speedIndex = 1; break;
+        case 5: speedIndex = 2; break;
+        case 10: speedIndex = 3; break;
+        case 50: speedIndex = 4; break;
+        case 100: speedIndex = 5; break;
+        case 200: speedIndex = 6; break;
+        case 300: speedIndex = 7; break;
+        default: speedIndex = 0; break;
+      }
+      playbackSpeed.SelectedIndex = speedIndex;
+
+      // DDE (устаревший)
+      ddeServerName.Text = cfg.u.DdeServerName;
+```
+
+**Сохранение настроек:**
+```csharp
+// ... код ...
       cfg.u.ApiKey = apiKey.Password;
       cfg.u.PollInterval = (int)pollInterval.Value;
       cfg.u.ApiDataDate = apiDataDate.Text.Trim();
+      
+      // Скорость воспроизведения
+      if(playbackSpeed.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag != null)
+      {
+        cfg.u.PlaybackSpeed = Convert.ToInt32(item.Tag);
+      }
 
       // DDE (устаревший)
       cfg.u.DdeServerName = ddeServerName.Text;
-
-      cfg.u.EnableQuikLog = enableQuikLog.IsChecked == true;
-      cfg.u.AcceptAllTrades = acceptAllTrades.IsChecked == true;
 ```
 
-**Описание:** 
-- В метод `InitOther()` добавлена инициализация полей REST API
-- В метод `ApplyOther()` добавлено сохранение настроек REST API
+**Описание:**
+- Добавлена логика для загрузки скорости воспроизведения из настроек
+- Добавлена логика для сохранения выбранной скорости воспроизведения
 
 ---
 
-## Удаленные файлы
+## Новые файлы (добавлены в проект)
 
-### 1. plans/plan.md
+### Connector/DataProvider/RestApi/ApiLog.cs
+Класс для логирования API операций.
 
-**Описание:** Удален старый план исправления проблем с проектом. Заменен на новые файлы документации.
+### Connector/DataProvider/RestApi/ApiModels.cs
+DTO (Data Transfer Objects) для JSON-ответов REST API.
 
----
+### Connector/DataProvider/RestApi/DataSynchronizer.cs
+Статический класс для синхронизации quotes и trades по timestamp. Критически важен для правильной отрисовки кластеров.
 
-## Новые файлы (untracked)
-
-### 1. Connector/DataProvider/RestApi/ApiClient.cs
-
-**Описание:** HTTP-клиент для REST API. Реализует:
-- Конструктор с baseUrl и apiKey
-- Методы `GetQuotesAsync()` и `GetTradesAsync()` для получения данных
-- Методы `FetchAllQuotesAsync()` и `FetchAllTradesAsync()` для получения всех страниц с пагинацией
-- Метод `GetByUrlAsync()` для запросов по абсолютному URL (для next_url)
-- Метод `BuildUrl()` для построения URL с параметрами
-- Метод `Dispose()` для освобождения ресурсов
-
-**Ключевые классы:**
-```csharp
-class ApiClient : IDisposable
-{
-    private readonly HttpClient _http;
-    private readonly string _baseUrl;
-    
-    public ApiClient(string baseUrl, string apiKey) { ... }
-    public async Task<QuotesResponse> GetQuotesAsync(...) { ... }
-    public async Task<TradesResponse> GetTradesAsync(...) { ... }
-    public async Task<QuoteResult[]> FetchAllQuotesAsync(...) { ... }
-    public async Task<TradeResult[]> FetchAllTradesAsync(...) { ... }
-    internal async Task<T> GetByUrlAsync<T>(string absoluteUrl) { ... }
-    private string BuildUrl(string endpoint, string timestampParam, int limit) { ... }
-    public void Dispose() { ... }
-}
-```
-
-**Дополнительные возможности:**
-- Автоматическое определение типа параметра timestamp (дата или наносекунды)
-- Установка заголовка Authorization с Bearer токеном
-- Таймаут запросов: 30 секунд
-- Отладочные сообщения в Debug output
+### Connector/DataProvider/RestApi/HistoryPlayback.cs
+Класс для воспроизведения исторических данных с поддержкой:
+- Управления скоростью воспроизведения
+- Перемотки вперед/назад
+- Паузы/возобновления
+- Прогресса воспроизведения
+- Callback для очистки визуализации
 
 ---
 
-### 2. Connector/DataProvider/RestApi/ApiModels.cs
-
-**Описание:** DTO (Data Transfer Objects) для JSON-ответов REST API.
-
-**Ключевые классы:**
-```csharp
-class QuotesResponse
-{
-    public string Status { get; set; }
-    public string RequestId { get; set; }
-    public string NextUrl { get; set; }
-    public QuoteResult[] Results { get; set; }
-}
-
-class QuoteResult
-{
-    public int AskExchange { get; set; }
-    public double AskPrice { get; set; }
-    public double AskSize { get; set; }
-    public int BidExchange { get; set; }
-    public double BidPrice { get; set; }
-    public double BidSize { get; set; }
-    public int[] Conditions { get; set; }
-    public int[] Indicators { get; set; }
-    public long ParticipantTimestamp { get; set; }
-    public long SipTimestamp { get; set; }
-    public long TrfTimestamp { get; set; }
-    public int SequenceNumber { get; set; }
-    public int Tape { get; set; }
-}
-
-class TradesResponse
-{
-    public string Status { get; set; }
-    public string RequestId { get; set; }
-    public string NextUrl { get; set; }
-    public TradeResult[] Results { get; set; }
-}
-
-class TradeResult
-{
-    public string Id { get; set; }
-    public double Price { get; set; }
-    public double Size { get; set; }
-    public int Exchange { get; set; }
-    public int[] Conditions { get; set; }
-    public int? Correction { get; set; }
-    public long ParticipantTimestamp { get; set; }
-    public long SipTimestamp { get; set; }
-    public long? TrfTimestamp { get; set; }
-    public int? TrfId { get; set; }
-    public int SequenceNumber { get; set; }
-    public int Tape { get; set; }
-}
-```
-
----
-
-### 3. Connector/DataProvider/RestApi/DataSynchronizer.cs
-
-**Описание:** Статический класс для синхронизации quotes и trades по timestamp. Критически важен для правильной отрисовки кластеров.
-
-**Ключевые классы:**
-```csharp
-static class DataSynchronizer
-{
-    public abstract class MarketEvent
-    {
-        public long Timestamp { get; set; }
-    }
-
-    public class QuoteEvent : MarketEvent
-    {
-        public QuoteResult Data { get; set; }
-    }
-
-    public class TradeEvent : MarketEvent
-    {
-        public TradeResult Data { get; set; }
-    }
-
-    public static IEnumerable<MarketEvent> Merge(
-        QuoteResult[] quotes, 
-        TradeResult[] trades)
-    {
-        // Объединяет и сортирует quotes + trades по timestamp
-        return events.OrderBy(e => e.Timestamp);
-    }
-}
-```
-
----
-
-### 4. Connector/DataProvider/RestApi/SyncDataPoller.cs
-
-**Описание:** Единый синхронизированный поллер для quotes и trades. Гарантирует правильный порядок событий для отрисовки кластеров.
-
-**Ключевые классы:**
-```csharp
-class SyncDataPoller : IDisposable
-{
-    private readonly ApiClient _api;
-    private readonly IDataReceiver _receiver;
-    private readonly TermManager _tmgr;
-    private readonly string _ticker;
-    private readonly string _secKey;
-    private readonly int _pollIntervalMs;
-    private readonly string _initialDate;
-    /// <summary> true = пользователь задал дату: всегда запрашиваем только эту дату, не переключаемся на timestamp.gte (иначе API вернёт данные следующих дней/онлайн и перезапишет стакан) </summary>
-    private readonly bool _historicalOnly;
-    
-    private CancellationTokenSource _cts;
-    private Task _pollingTask;
-    
-    private long _lastQuoteTimestamp;
-    private long _lastTradeTimestamp;
-    private int _lastTradeSequence;
-
-    public bool IsConnected { get; private set; }
-    public bool IsError { get; private set; }
-    public DateTime DataReceived { get; private set; }
-
-    public SyncDataPoller(...) { ... }
-    public void Start() { ... }
-    public void Stop() { ... }
-    
-    private async Task PollLoopAsync(CancellationToken ct) { ... }
-    private QuoteResult[] FilterNewQuotes(QuotesResponse response) { ... }
-    private TradeResult[] FilterNewTrades(TradesResponse response) { ... }
-    private void ProcessSynchronized(QuoteResult[] quotes, TradeResult[] trades) { ... }
-    private void ProcessQuote(QuoteResult q) { ... }
-    private void ProcessTrade(TradeResult tr) { ... }
-    
-    public void Dispose() { ... }
-}
-```
-
-**Дополнительные возможности:**
-- Поддержка исторического режима (загрузка данных за конкретную дату)
-- Фильтрация новых данных по `sipTimestamp` (для quotes) и `sequenceNumber` (для trades)
-- Отладочные сообщения при старте и получении данных
-- Отображение диапазона цен и времени первой сделки
-- Параллельный запрос quotes и trades с использованием `Task.WhenAll()`
-- В историческом режиме загружаются все страницы через `FetchAllQuotesAsync()` и `FetchAllTradesAsync()`
-
----
-
-### 5. plans/migration-plan.md
-
-**Описание:** Подробный план миграции с DDE на REST API. Содержит:
-- Обзор текущей архитектуры DDE
-- Новую архитектуру REST API
-- Важность синхронизации потоков Quotes и Trades
-- Этапы миграции (5 этапов)
-- Маппинг данных API → Internal
-- Открытые вопросы
-- Чеклист миграции
-- Оценку рисков
-
----
-
-### 6. plans/quotes.md
-
-**Описание:** Документация REST API эндпоинта `/v3/quotes/{stockTicker}`. Содержит:
-- Описание endpoint
-- Query параметры
-- Response атрибуты
-- Sample Response
-
----
-
-### 7. plans/trades.md
-
-**Описание:** Документация REST API эндпоинта `/v3/trades/{stockTicker}`. Содержит:
-- Описание endpoint
-- Query параметры
-- Response атрибуты
-- Sample Response
-
----
-
-## Сводная таблица изменений
+## Статистика изменений
 
 | Файл | Тип изменения | Описание |
-|-------|--------------|----------|
-| Config/UserSettings.cs | Изменение | Добавлены настройки REST API |
-| Connector/DataProvider/DataProvider.cs | Рефакторинг | Замена DDE на REST API |
-| MainWindow/CfgChecker.cs | Изменение | Обновлена проверка настроек, добавлена логика очистки при смене даты |
-| MainWindow/StatusBar.cs | Изменение | Обновлен статус каналов данных (переименован метод) |
-| QScalp.csproj | Изменение | Добавлены новые файлы и зависимости (PackageReference) |
-| View/Clusters/ClustersElement.cs | Изменение | Добавлен метод Clear(), поддержка горизонтального скроллинга |
-| View/Clusters/Legend.cs | Изменение | Удален BOM |
-| View/DataQueue.cs | Изменение | Добавлены методы Clear() |
-| View/ScalpView.cs | Изменение | Добавлены методы очистки данных, поддержка горизонтального скроллинга |
-| View/Stock/StockElement.cs | Изменение | Добавлен метод ClearQuotes() |
-| View/Stock/VStock.cs | Изменение | Добавлен метод Clear() |
-| View/ViewManager.cs | Изменение | Добавлены методы ResetDataState(), ClearQueues() |
-| Windows/Config/ConfigWindow.xaml | Изменение | Добавлен UI настроек REST API |
-| Windows/Config/TabOther.cs | Изменение | Добавлена инициализация/сохранение REST API |
-| plans/plan.md | Удален | Удален старый план |
+|------|--------------|----------|
+| Config/UserSettings.cs | Изменение | Добавлены настройки REST API и воспроизведения |
+| Connector/DataProvider/DataProvider.cs | Рефакторинг | Замена DDE на REST API + управление воспроизведением |
 | Connector/DataProvider/RestApi/ApiClient.cs | Новый | HTTP-клиент для REST API с поддержкой пагинации |
-| Connector/DataProvider/RestApi/ApiModels.cs | Новый | DTO для API ответов с JsonProperty атрибутами |
-| Connector/DataProvider/RestApi/DataSynchronizer.cs | Новый | Синхронизация данных по timestamp |
 | Connector/DataProvider/RestApi/SyncDataPoller.cs | Новый | Синхронизированный поллер с историческим режимом |
-| plans/migration-plan.md | Новый | План миграции на REST API |
-| plans/quotes.md | Новый | Документация API quotes |
-| plans/trades.md | Новый | Документация API trades |
+| MainWindow/Handlers.cs | Изменение | Добавлена обработка клавиш управления воспроизведением |
+| MainWindow/MainWindow.xaml | Изменение | Добавлено меню воспроизведения и статус в StatusBar |
+| MainWindow/MainWindow.xaml.cs | Изменение | Инициализация меню воспроизведения и callback |
+| MainWindow/Menu.cs | Изменение | Обработчики событий меню воспроизведения |
+| MainWindow/StatusBar.cs | Изменение | Статус воспроизведения и обработка кликов |
+| QScalp.csproj | Изменение | Добавлены конфигурации x64 и новые файлы |
+| QScalp.sln | Изменение | Добавлены конфигурации x64 |
+| Windows/Config/ConfigWindow.xaml | Изменение | ComboBox для выбора скорости воспроизведения |
+| Windows/Config/TabOther.cs | Изменение | Сохранение/загрузка скорости воспроизведения |
+| Connector/DataProvider/RestApi/ApiLog.cs | Новый | Логирование API операций |
+| Connector/DataProvider/RestApi/ApiModels.cs | Новый | DTO для API ответов |
+| Connector/DataProvider/RestApi/DataSynchronizer.cs | Новый | Синхронизация данных по timestamp |
+| Connector/DataProvider/RestApi/HistoryPlayback.cs | Новый | Воспроизведение исторических данных |
 
 ---
 
@@ -1495,27 +1480,21 @@ class SyncDataPoller : IDisposable
 - `SyncDataPoller` гарантирует правильный порядок событий для кластеров
 - Критически важно для корректной отрисовки кластеров
 
-### 3. Очистка данных
-- Добавлены методы `Clear()` в различные компоненты для перезагрузки данных за другую дату
-- `ClearAllData()` в `ScalpView` выполняет полную очистку всех данных
-- Добавлен флаг `_needsStockRebuild` для пересборки стакана после очистки
-- При изменении даты данных (`ApiDataDate`) автоматически очищаются и перезагружаются все данные
+### 3. Воспроизведение исторических данных
+- Поддержка загрузки данных за конкретную дату через параметр `ApiDataDate`
+- Класс `HistoryPlayback` для управления воспроизведением
+- Управление скоростью (x1, x2, x5, x10, x50, x100, x200, x300)
+- Перемотка вперед/назад, пауза/возобновление
+- UI: меню воспроизведения, статус в StatusBar, горячие клавиши
 
 ### 4. Настройки
 - Добавлены настройки REST API в `UserSettings`
+- Добавлены настройки воспроизведения: `PlaybackSpeed`, `QuoteSampling`
 - Обновлен UI конфигурации с новой секцией "REST API"
-- DDE настройки помечены как "устаревшие"
 
-### 5. Горизонтальный скроллинг кластеров
-- Добавлен режим "без ограничения" (`Clusters <= 0`) для отображения всех кластеров
-- Ширина области кластеров вычисляется как 2/3 ширины окна
-- Поддержка горизонтального скроллинга через Shift+колесико мыши
-- Добавлены методы `HorizontalScroll()`, `ResetHorizontalScroll()`, `CanHorizontalScroll`
-
-### 6. Исторический режим
-- Поддержка загрузки данных за конкретную дату через параметр `ApiDataDate`
-- В историческом режиме загружаются все страницы данных через пагинацию
-- Флаг `_historicalOnly` предотвращает переключение на онлайн-данные
+### 5. Платформа
+- Изменена платформа по умолчанию с x86 на x64
+- Добавлены конфигурации Debug|x64 и Release|x64
 
 ---
 
@@ -1529,24 +1508,12 @@ class SyncDataPoller : IDisposable
 
 ---
 
-## Примечания для нейросети
+## Резюме
 
-1. **Критическая важность синхронизации:** Класс `DataSynchronizer` критически важен для правильной отрисовки кластеров. Без синхронизации по `sip_timestamp` кластеры будут отображаться неверно.
+Проект претерпел два этапа масштабных изменений:
 
-2. **Единый поллер:** `SyncDataPoller` заменяет два независимых поллера (для quotes и trades) одним синхронизированным. Это гарантирует атомарность обработки данных.
+1. **Миграция с DDE на REST API** - полная замена устаревшего протокола DDE на современный REST API для получения рыночных данных в реальном времени.
 
-3. **Исторический режим:** Поддерживается загрузка исторических данных за конкретную дату через параметр `ApiDataDate`. В историческом режиме загружаются все страницы данных через пагинацию.
+2. **Добавление функциональности воспроизведения исторических данных** - возможность загружать исторические котировки и сделки за указанную дату и воспроизводить их с регулируемой скоростью (от x1 до x300), с возможностью перемотки, паузы и изменения скорости во время воспроизведения.
 
-4. **Пагинация:** Методы `FetchAllQuotesAsync` и `FetchAllTradesAsync` обрабатывают пагинацию через `next_url`.
-
-5. **Совместимость:** Интерфейс `IDataReceiver` сохранен без изменений, что обеспечивает совместимость с существующим UI кодом.
-
-6. **Очистка данных:** Все методы `Clear()` предназначены для перезагрузки данных за другую дату. Они должны вызываться перед загрузкой новых данных.
-
-7. **Режим "без ограничения":** При `Clusters <= 0` кластеры не удаляются автоматически, а ширина области вычисляется как 2/3 ширины окна. Поддерживается горизонтальный скроллинг через Shift+колесико.
-
-8. **Отладочные сообщения:** `SyncDataPoller` выводит отладочные сообщения при старте, получении данных и ошибках. Это помогает диагностировать проблемы с API.
-
-9. **Фильтрация данных:** `FilterNewQuotes` фильтрует по `sipTimestamp`, `FilterNewTrades` фильтрует по `sequenceNumber`. Это предотвращает дублирование данных при поллинге.
-
-10. **Обработка изменения даты:** При изменении `ApiDataDate` в `CfgChecker` вызывается `sv.ClearAllData()` для полной очистки данных перед загрузкой новых.
+Функциональность позволяет анализировать исторические данные в режиме реального времени, что полезно для обучения, тестирования стратегий и анализа рыночного поведения.

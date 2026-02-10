@@ -29,8 +29,12 @@ namespace QScalp.Connector.RestApi
             if (!string.IsNullOrEmpty(apiKey))
                 _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
             
-            _http.Timeout = TimeSpan.FromSeconds(30);
+            // Увеличенный таймаут для загрузки больших объёмов исторических данных
+            _http.Timeout = TimeSpan.FromMinutes(5);
         }
+        
+        /// <summary>Событие прогресса загрузки (количество загруженных записей)</summary>
+        public event Action<string, int> LoadProgress;
 
         // **********************************************************************
 
@@ -59,13 +63,29 @@ namespace QScalp.Connector.RestApi
         {
             var url = BuildUrl($"/v3/quotes/{ticker}", timestampParam, limit);
             var list = new List<QuoteResult>();
+            int pageNum = 0;
+            
             QuotesResponse r = await GetAsync<QuotesResponse>(url);
-            if (r?.Results != null) list.AddRange(r.Results);
+            if (r?.Results != null) 
+            {
+                list.AddRange(r.Results);
+                pageNum++;
+            }
+            
             while (!string.IsNullOrEmpty(r?.NextUrl))
             {
                 r = await GetByUrlAsync<QuotesResponse>(r.NextUrl);
-                if (r?.Results != null) list.AddRange(r.Results);
+                if (r?.Results != null) 
+                {
+                    list.AddRange(r.Results);
+                    pageNum++;
+                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
+                    if (pageNum % 50 == 0)
+                        LoadProgress?.Invoke("quotes", list.Count);
+                }
             }
+            
+            LoadProgress?.Invoke("quotes", list.Count);
             return list.ToArray();
         }
 
@@ -74,13 +94,29 @@ namespace QScalp.Connector.RestApi
         {
             var url = BuildUrl($"/v3/trades/{ticker}", timestampParam, limit);
             var list = new List<TradeResult>();
+            int pageNum = 0;
+            
             TradesResponse r = await GetAsync<TradesResponse>(url);
-            if (r?.Results != null) list.AddRange(r.Results);
+            if (r?.Results != null) 
+            {
+                list.AddRange(r.Results);
+                pageNum++;
+            }
+            
             while (!string.IsNullOrEmpty(r?.NextUrl))
             {
                 r = await GetByUrlAsync<TradesResponse>(r.NextUrl);
-                if (r?.Results != null) list.AddRange(r.Results);
+                if (r?.Results != null) 
+                {
+                    list.AddRange(r.Results);
+                    pageNum++;
+                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
+                    if (pageNum % 50 == 0)
+                        LoadProgress?.Invoke("trades", list.Count);
+                }
             }
+            
+            LoadProgress?.Invoke("trades", list.Count);
             return list.ToArray();
         }
 

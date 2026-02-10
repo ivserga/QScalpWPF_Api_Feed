@@ -1,4 +1,4 @@
-﻿<!-- =========================================================================== -->
+<!-- =========================================================================== -->
 <!--    MainWindow.xaml (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/    -->
 <!-- =========================================================================== -->
 
@@ -28,6 +28,7 @@
                 <ItemsPanelTemplate>
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
@@ -62,6 +63,26 @@
                         <Separator/>
                         <MenuItem Name="menuEmulation" Header="Эмуляция терминала" IsCheckable="True" Click="MenuEmulation_Click" />
                         <Separator/>
+                        <MenuItem Header="Воспроизведение" Name="menuPlayback">
+                            <MenuItem Name="menuPlayPause" Header="Старт" Click="MenuPlayPause_Click" InputGestureText="Space" />
+                            <MenuItem Name="menuStop" Header="Стоп" Click="MenuStop_Click" />
+                            <Separator/>
+                            <MenuItem Name="menuSeekBackward60" Header="Назад 1 мин" Click="MenuSeekBackward_Click" Tag="60" InputGestureText="Ctrl+Left" />
+                            <MenuItem Name="menuSeekBackward10" Header="Назад 10 сек" Click="MenuSeekBackward_Click" Tag="10" InputGestureText="Left" />
+                            <MenuItem Name="menuSeekForward10" Header="Вперёд 10 сек" Click="MenuSeekForward_Click" Tag="10" InputGestureText="Right" />
+                            <MenuItem Name="menuSeekForward60" Header="Вперёд 1 мин" Click="MenuSeekForward_Click" Tag="60" InputGestureText="Ctrl+Right" />
+                            <MenuItem Name="menuSeekToStart" Header="В начало" Click="MenuSeekToStart_Click" InputGestureText="Home" />
+                            <Separator/>
+                            <MenuItem Name="menuSpeedX1" Header="x1" IsCheckable="True" Click="MenuSpeed_Click" Tag="1" />
+                            <MenuItem Name="menuSpeedX2" Header="x2" IsCheckable="True" Click="MenuSpeed_Click" Tag="2" />
+                            <MenuItem Name="menuSpeedX5" Header="x5" IsCheckable="True" Click="MenuSpeed_Click" Tag="5" />
+                            <MenuItem Name="menuSpeedX10" Header="x10" IsCheckable="True" Click="MenuSpeed_Click" Tag="10" />
+                            <MenuItem Name="menuSpeedX50" Header="x50" IsCheckable="True" Click="MenuSpeed_Click" Tag="50" />
+                            <MenuItem Name="menuSpeedX100" Header="x100" IsCheckable="True" Click="MenuSpeed_Click" Tag="100" />
+                            <MenuItem Name="menuSpeedX200" Header="x200" IsCheckable="True" Click="MenuSpeed_Click" Tag="200" />
+                            <MenuItem Name="menuSpeedX300" Header="x300" IsCheckable="True" Click="MenuSpeed_Click" Tag="300" />
+                        </MenuItem>
+                        <Separator/>
                         <MenuItem Header="Очистить">
                             <MenuItem Name="menuDropPos" Header="Позицию" Click="MenuDropPos_Click" />
                             <MenuItem Name="menuClearGuide" Header="Поводырь" Click="MenuClearGuide_Click" />
@@ -73,27 +94,30 @@
                 </Menu>
             </StatusBarItem>
 
-            <StatusBarItem Grid.Column="4" HorizontalAlignment="Center" ToolTip="Автоцентровка спреда">
+            <StatusBarItem Grid.Column="4" HorizontalAlignment="Center" ToolTip="Воспроизведение" Name="playbackStatusItem" MouseDown="PlaybackStatusClick" Visibility="Collapsed">
+                <TextBlock Name="playbackStatus" />
+            </StatusBarItem>
+            <StatusBarItem Grid.Column="5" HorizontalAlignment="Center" ToolTip="Автоцентровка спреда">
                 <TextBlock Name="acStatus" />
             </StatusBarItem>
-            <StatusBarItem Grid.Column="5" HorizontalAlignment="Center" ToolTip="Рабочий объем" MouseDown="WorkSizeStatusClick">
+            <StatusBarItem Grid.Column="6" HorizontalAlignment="Center" ToolTip="Рабочий объем" MouseDown="WorkSizeStatusClick">
                 <TextBlock Name="wsStatus" />
             </StatusBarItem>
-            <StatusBarItem Grid.Column="6" HorizontalAlignment="Center" ToolTip="Индикатор клавиатуры" Name="keyStatusItem" MouseDown="KeyStatusClick">
+            <StatusBarItem Grid.Column="7" HorizontalAlignment="Center" ToolTip="Индикатор клавиатуры" Name="keyStatusItem" MouseDown="KeyStatusClick">
                 <TextBlock Name="keyStatus" />
             </StatusBarItem>
-            <StatusBarItem Grid.Column="7" HorizontalAlignment="Center">
+            <StatusBarItem Grid.Column="8" HorizontalAlignment="Center">
                 <TextBlock Name="opqStatus" />
             </StatusBarItem>
-            <StatusBarItem Grid.Column="8" HorizontalAlignment="Center" MouseDown="PosStatusClick">
+            <StatusBarItem Grid.Column="9" HorizontalAlignment="Center" MouseDown="PosStatusClick">
                 <TextBlock Name="posStatus" ToolTip="Рыночная позиция" />
             </StatusBarItem>
 
-            <StatusBarItem Grid.Column="9" HorizontalAlignment="Right" MouseDown="ResultStatusClick">
+            <StatusBarItem Grid.Column="10" HorizontalAlignment="Right" MouseDown="ResultStatusClick">
                 <TextBlock Name="resultStatus" ToolTip="Средний результат на 1 лот / Кол-во трейдов / Результат предыдущего трейда" />
             </StatusBarItem>
 
-            <StatusBarItem Grid.Column="10" Padding="0">
+            <StatusBarItem Grid.Column="11" Padding="0">
                 <ResizeGrip Visibility="Hidden" />
             </StatusBarItem>
         </StatusBar>

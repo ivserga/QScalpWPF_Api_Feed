@@ -19,6 +19,8 @@ namespace QScalp
     public string ApiKey = "";
     public int PollInterval = 100;  // ms (единый интервал для синхронизированного поллинга)
     public string ApiDataDate = "";  // Дата загрузки данных (YYYY-MM-DD), пусто = сегодня
+    public int PlaybackSpeed = 1;   // Скорость воспроизведения исторических данных (1, 2, 5, 10, 50, 100)
+    public int QuoteSampling = 10;  // Прореживание котировок: 1=все, 10=каждая 10-я, 100=каждая 100-я
 
     // **********************************************************************
     // *                              QUIK & DDE                            *
