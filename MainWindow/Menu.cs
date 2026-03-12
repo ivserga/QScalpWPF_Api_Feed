@@ -174,6 +174,35 @@ namespace QScalp
 
     // **********************************************************************
 
+    private void MenuExportClusters_Click(object sender, RoutedEventArgs e)
+    {
+      var sfd = new System.Windows.Forms.SaveFileDialog
+      {
+        Filter = "JSON для нейросети (*.json)|*.json|Все файлы (*.*)|*.*",
+        DefaultExt = "json",
+        RestoreDirectory = true,
+        Title = "Экспорт кластеров (JSON)",
+        FileName = cfg.ProgName + "_clusters_" + cfg.u.SecCode + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".json"
+      };
+
+      if(sfd.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+      {
+        try
+        {
+          sv.SaveClustersToFile(sfd.FileName);
+          MessageBox.Show("Кластеры сохранены: " + sfd.FileName, cfg.ProgName, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch(Exception ex)
+        {
+          MessageBox.Show("Ошибка сохранения: " + ex.Message, cfg.ProgName, MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+      }
+
+      Focus();
+    }
+
+    // **********************************************************************
+
     private void MenuExit_Click(object sender, RoutedEventArgs e) { Close(); }
 
     // **********************************************************************

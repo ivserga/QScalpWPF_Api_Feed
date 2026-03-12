@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 //    Cluster.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // ======================================================================
 
@@ -20,6 +20,9 @@ namespace QScalp.View.ClustersSpace
     public int Delta { get; protected set; }
     public int MinPrice { get; protected set; }
     public int MaxPrice { get; protected set; }
+
+    public int OpenPrice { get { return firstPrice; } }
+    public int ClosePrice { get { return lastPrice; } }
 
     // **********************************************************************
 
@@ -155,6 +158,55 @@ namespace QScalp.View.ClustersSpace
         kvp.Value.Rebuild();
         kvp.Value.Offset = new Vector(0, vmgr.PriceOffset(kvp.Key));
       }
+    }
+
+    // **********************************************************************
+
+    /// <summary>
+    /// Распределение объёма относительно цены закрытия кластера.
+    /// </summary>
+    public void GetVolumeDistribution(out long volumeAboveClose, out long volumeBelowClose)
+    {
+      volumeAboveClose = 0;
+      volumeBelowClose = 0;
+
+      foreach(var kv in cells)
+      {
+        long cellVolume = kv.Value.BuyVolume + kv.Value.SellVolume;
+
+        if(kv.Key > lastPrice)
+          volumeAboveClose += cellVolume;
+        else if(kv.Key < lastPrice)
+          volumeBelowClose += cellVolume;
+      }
+    }
+
+    // **********************************************************************
+
+    /// <summary>
+    /// Данные кластера в формате, пригодном для экспорта (JSON) и последующего использования нейросетью.
+    /// </summary>
+    public ClusterExportData GetExportData()
+    {
+      var cellList = new List<ClusterCellExport>();
+      foreach(var kv in cells)
+        cellList.Add(new ClusterCellExport
+        {
+          price = kv.Key,
+          volume = kv.Value.BuyVolume + kv.Value.SellVolume
+        });
+
+      return new ClusterExportData
+      {
+        dateTime = DateTime.ToString("o"),
+        volume = Volume,
+        ticks = Ticks,
+        openPrice = firstPrice,
+        closePrice = lastPrice,
+        minPrice = MinPrice,
+        maxPrice = MaxPrice,
+        cells = cellList
+      };
     }
 
     // **********************************************************************

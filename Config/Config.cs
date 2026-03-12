@@ -1,4 +1,4 @@
-﻿// =====================================================================
+// =====================================================================
 //    Config.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // =====================================================================
 
@@ -78,6 +78,7 @@ namespace QScalp
     public static readonly string LogFile;
     public static readonly string SecFile;
     public static readonly string TradeLogFile;
+    public static readonly string ClustersExportFile;
 
 
     // **********************************************************************
@@ -103,6 +104,7 @@ namespace QScalp
       fs = fs.Remove(fs.LastIndexOf('\\') + 1);
       SecFile = fs + "seclist.csv";
       TradeLogFile = fs + "trades." + TradeLogFileExt;
+      ClustersExportFile = fs + "clusters.json";
 
       // ------------------------------------------------------------
 

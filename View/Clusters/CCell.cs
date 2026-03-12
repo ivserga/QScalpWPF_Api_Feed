@@ -1,4 +1,4 @@
-﻿// ====================================================================
+// ====================================================================
 //    CCell.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // ====================================================================
 
@@ -17,6 +17,11 @@ namespace QScalp.View.ClustersSpace
     // **********************************************************************
 
     public bool Updated { get; protected set; }
+
+    /// <summary>Объём покупок на уровне цены (для экспорта)</summary>
+    public int BuyVolume => body.BuyVolume;
+    /// <summary>Объём продаж на уровне цены (для экспорта)</summary>
+    public int SellVolume => body.SellVolume;
 
     public void AddBuy(int volume) { body.AddBuy(volume); Updated = true; }
     public void AddSell(int volume) { body.AddSell(volume); Updated = true; }

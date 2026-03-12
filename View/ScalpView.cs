@@ -390,6 +390,11 @@ namespace QScalp.View
     public void ClearClusters() { eClusters.Clear(); }
 
     /// <summary>
+    /// Сохраняет данные кластеров в JSON-файл (формат для нейросети).
+    /// </summary>
+    public void SaveClustersToFile(string filePath) { eClusters.SaveClustersToFile(filePath); }
+
+    /// <summary>
     /// Очищает котировки стакана
     /// </summary>
     public void ClearStock() { eStock.ClearQuotes(); }

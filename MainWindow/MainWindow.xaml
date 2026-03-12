@@ -83,6 +83,8 @@
                             <MenuItem Name="menuSpeedX300" Header="x300" IsCheckable="True" Click="MenuSpeed_Click" Tag="300" />
                         </MenuItem>
                         <Separator/>
+                        <MenuItem Name="menuExportClusters" Header="Экспорт кластеров (JSON)" Click="MenuExportClusters_Click" ToolTip="Сохранить данные кластеров в JSON для нейросети" />
+                        <Separator/>
                         <MenuItem Header="Очистить">
                             <MenuItem Name="menuDropPos" Header="Позицию" Click="MenuDropPos_Click" />
                             <MenuItem Name="menuClearGuide" Header="Поводырь" Click="MenuClearGuide_Click" />

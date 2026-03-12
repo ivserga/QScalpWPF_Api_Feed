@@ -3,10 +3,13 @@
 // ==========================================================================
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 
+using Newtonsoft.Json;
 using QScalp.View.ClustersSpace;
 
 namespace QScalp.View
@@ -234,6 +237,30 @@ namespace QScalp.View
       legends.Children.Add(cLegend);
 
       UpdateWidth();
+      AnalyzeClusters();
+    }
+
+    // **********************************************************************
+
+    void AnalyzeClusters()
+    {
+      int count = clusters.Children.Count;
+
+      // Нужно минимум 4: 3 завершённых + 1 новый (пустой)
+      if(count < 4)
+        return;
+
+      var c1 = (Cluster)clusters.Children[count - 4];
+      var c2 = (Cluster)clusters.Children[count - 3];
+      var c3 = (Cluster)clusters.Children[count - 2];
+
+      var absorption = ClusterAnalyzer.Analyze(c1, c2, c3);
+      if(absorption != ClusterAnalyzer.Signal.None)
+        vmgr.MsgQueue.Enqueue(new Message(ClusterAnalyzer.FormatMessage(absorption, c3)));
+
+      var climax = ClusterAnalyzer.AnalyzeClimax(c1, c2, c3);
+      if(climax != ClusterAnalyzer.ClimaxSignal.None)
+        vmgr.MsgQueue.Enqueue(new Message(ClusterAnalyzer.FormatClimaxMessage(climax, c1, c2, c3)));
     }
 
     // **********************************************************************
@@ -380,6 +407,39 @@ namespace QScalp.View
     public bool CanHorizontalScroll 
     { 
       get { return nClusters <= 0 && clusters.Children.Count > displayClusters; } 
+    }
+
+    // **********************************************************************
+
+    /// <summary>
+    /// Сохраняет данные по всем кластерам в JSON-файл в формате, удобном для загрузки нейросетью:
+    /// метаданные (инструмент, настройки кластеров) + массив кластеров с ячейками (цена, объём покупок/продаж).
+    /// </summary>
+    public void SaveClustersToFile(string filePath)
+    {
+      var doc = new ClustersExportDocument
+      {
+        meta = new ClusterExportMeta
+        {
+          instrument = cfg.u.SecCode,
+          classCode = cfg.u.ClassCode,
+          clusterBase = cfg.u.ClusterBase.ToString(),
+          clusterSize = cfg.u.ClusterSize,
+          priceStep = cfg.u.PriceStep,
+          exportTime = DateTime.UtcNow.ToString("o")
+        },
+        clusters = new List<ClusterExportData>()
+      };
+
+      for(int i = 0; i < clusters.Children.Count; i++)
+      {
+        var c = clusters.Children[i] as Cluster;
+        if(c != null)
+          doc.clusters.Add(c.GetExportData());
+      }
+
+      var json = JsonConvert.SerializeObject(doc, Formatting.Indented);
+      File.WriteAllText(filePath, json);
     }
 
     // **********************************************************************

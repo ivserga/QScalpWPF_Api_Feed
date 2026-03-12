@@ -165,6 +165,9 @@ namespace QScalp
         tmgr.Position.TradeLog.Flush(cfg.TradeLogFile);
       }
 
+      //try { sv.SaveClustersToFile(cfg.ClustersExportFile); }
+      //catch { }
+
       base.OnClosed(e);
     }
 

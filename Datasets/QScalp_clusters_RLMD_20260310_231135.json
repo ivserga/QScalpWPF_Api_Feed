@@ -1,0 +1,232 @@
+{
+  "meta": {
+    "instrument": "RLMD",
+    "classCode": "SPBFUT",
+    "clusterBase": "Time",
+    "clusterSize": 60,
+    "priceStep": 1,
+    "exportTime": "2026-03-10T15:11:39.3685430Z"
+  },
+  "clusters": [
+      {
+      "dateTime": "2026-03-09T14:19:00.0000000",
+      "volume": 41114,
+      "ticks": 310,
+      "openPrice": 598,
+      "closePrice": 597,
+      "minPrice": 595,
+      "maxPrice": 600,
+      "cells": [
+        {
+          "price": 598,
+          "volume": 12234
+        },
+        {
+          "price": 597,
+          "volume": 5138
+        },
+        {
+          "price": 599,
+          "volume": 10150
+        },
+        {
+          "price": 600,
+          "volume": 3200
+        },
+        {
+          "price": 596,
+          "volume": 8749
+        },
+        {
+          "price": 595,
+          "volume": 1643
+        }
+      ]
+    },
+    {
+      "dateTime": "2026-03-09T14:20:00.0000000",
+      "volume": 45850,
+      "ticks": 234,
+      "openPrice": 598,
+      "closePrice": 598,
+      "minPrice": 596,
+      "maxPrice": 602,
+      "cells": [
+        {
+          "price": 598,
+          "volume": 4635
+        },
+        {
+          "price": 597,
+          "volume": 1212
+        },
+        {
+          "price": 596,
+          "volume": 1846
+        },
+        {
+          "price": 599,
+          "volume": 20198
+        },
+        {
+          "price": 600,
+          "volume": 16281
+        },
+        {
+          "price": 601,
+          "volume": 1478
+        },
+        {
+          "price": 602,
+          "volume": 200
+        }
+      ]
+    },
+    {
+      "dateTime": "2026-03-09T14:21:00.0000000",
+      "volume": 222130,
+      "ticks": 1806,
+      "openPrice": 598,
+      "closePrice": 586,
+      "minPrice": 580,
+      "maxPrice": 600,
+      "cells": [
+        {
+          "price": 598,
+          "volume": 1106
+        },
+        {
+          "price": 600,
+          "volume": 783
+        },
+        {
+          "price": 599,
+          "volume": 1963
+        },
+        {
+          "price": 597,
+          "volume": 598
+        },
+        {
+          "price": 596,
+          "volume": 1155
+        },
+        {
+          "price": 595,
+          "volume": 3500
+        },
+        {
+          "price": 594,
+          "volume": 3131
+        },
+        {
+          "price": 593,
+          "volume": 482
+        },
+        {
+          "price": 592,
+          "volume": 2600
+        },
+        {
+          "price": 591,
+          "volume": 2412
+        },
+        {
+          "price": 590,
+          "volume": 3160
+        },
+        {
+          "price": 589,
+          "volume": 1472
+        },
+        {
+          "price": 588,
+          "volume": 3120
+        },
+        {
+          "price": 587,
+          "volume": 4310
+        },
+        {
+          "price": 586,
+          "volume": 7269
+        },
+        {
+          "price": 585,
+          "volume": 3440
+        },
+        {
+          "price": 584,
+          "volume": 23097
+        },
+        {
+          "price": 583,
+          "volume": 34233
+        },
+        {
+          "price": 582,
+          "volume": 47531
+        },
+        {
+          "price": 581,
+          "volume": 45919
+        },
+        {
+          "price": 580,
+          "volume": 30849
+        }
+      ]
+    },
+    {
+      "dateTime": "2026-03-09T14:22:00.0000000",
+      "volume": 31396,
+      "ticks": 275,
+      "openPrice": 587,
+      "closePrice": 592,
+      "minPrice": 584,
+      "maxPrice": 593,
+      "cells": [
+        {
+          "price": 587,
+          "volume": 3702
+        },
+        {
+          "price": 586,
+          "volume": 4313
+        },
+        {
+          "price": 588,
+          "volume": 4082
+        },
+        {
+          "price": 584,
+          "volume": 526
+        },
+        {
+          "price": 585,
+          "volume": 1587
+        },
+        {
+          "price": 589,
+          "volume": 13742
+        },
+        {
+          "price": 590,
+          "volume": 1728
+        },
+        {
+          "price": 591,
+          "volume": 116
+        },
+        {
+          "price": 592,
+          "volume": 600
+        },
+        {
+          "price": 593,
+          "volume": 1000
+        }
+      ]
+    }
+  ]
+}

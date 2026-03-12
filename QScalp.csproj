@@ -185,6 +185,8 @@
     <Compile Include="View\ScalpView.cs" />
     <Compile Include="View\ViewManager.cs" />
     <Compile Include="View\Clusters\Cluster.cs" />
+    <Compile Include="View\Clusters\ClusterAnalyzer.cs" />
+    <Compile Include="View\Clusters\ClusterExport.cs" />
     <Compile Include="View\Clusters\CCell.cs" />
     <Compile Include="View\Clusters\Legend.cs" />
     <Compile Include="View\Clusters\ClustersElement.cs" />

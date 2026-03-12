@@ -1,4 +1,4 @@
-﻿// =======================================================================
+// =======================================================================
 //    CellBody.cs (c) 2012 Nikolay Moroshkin, http://www.moroshkin.com/
 // =======================================================================
 
@@ -25,6 +25,11 @@ namespace QScalp.View.ClustersSpace
     // **********************************************************************
 
     public bool Updated { get; protected set; }
+
+    /// <summary>Объём покупок на уровне цены (для экспорта в нейросеть)</summary>
+    public int BuyVolume => buyVolume;
+    /// <summary>Объём продаж на уровне цены (для экспорта в нейросеть)</summary>
+    public int SellVolume => sellVolume;
 
     public void AddBuy(int volume) { buyVolume += volume; Updated = true; }
     public void AddSell(int volume) { sellVolume += volume; Updated = true; }
