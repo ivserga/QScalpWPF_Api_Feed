@@ -163,21 +163,42 @@ namespace QScalp.View.ClustersSpace
     // **********************************************************************
 
     /// <summary>
+    /// Объём ячейки по указанной цене (0 если ячейки нет).
+    /// </summary>
+    public long GetCellVolume(int price)
+    {
+      CCell cell;
+      if(cells.TryGetValue(price, out cell))
+        return cell.BuyVolume + cell.SellVolume;
+      return 0;
+    }
+
+    // **********************************************************************
+
+    /// <summary>
     /// Распределение объёма относительно цены закрытия кластера.
     /// </summary>
-    public void GetVolumeDistribution(out long volumeAboveClose, out long volumeBelowClose)
+    public void GetVolumeDistribution(out long volumeAbove, out long volumeBelow)
     {
-      volumeAboveClose = 0;
-      volumeBelowClose = 0;
+      GetVolumeDistribution(lastPrice, out volumeAbove, out volumeBelow);
+    }
+
+    /// <summary>
+    /// Распределение объёма относительно произвольной цены-ориентира.
+    /// </summary>
+    public void GetVolumeDistribution(int referencePrice, out long volumeAbove, out long volumeBelow)
+    {
+      volumeAbove = 0;
+      volumeBelow = 0;
 
       foreach(var kv in cells)
       {
         long cellVolume = kv.Value.BuyVolume + kv.Value.SellVolume;
 
-        if(kv.Key > lastPrice)
-          volumeAboveClose += cellVolume;
-        else if(kv.Key < lastPrice)
-          volumeBelowClose += cellVolume;
+        if(kv.Key > referencePrice)
+          volumeAbove += cellVolume;
+        else if(kv.Key < referencePrice)
+          volumeBelow += cellVolume;
       }
     }
 

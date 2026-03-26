@@ -261,6 +261,10 @@ namespace QScalp.View
       var climax = ClusterAnalyzer.AnalyzeClimax(c1, c2, c3);
       if(climax != ClusterAnalyzer.ClimaxSignal.None)
         vmgr.MsgQueue.Enqueue(new Message(ClusterAnalyzer.FormatClimaxMessage(climax, c1, c2, c3)));
+
+      var rejection = ClusterAnalyzer.AnalyzeRejection(c1, c2, c3);
+      if(rejection != ClusterAnalyzer.RejectionSignal.None)
+        vmgr.MsgQueue.Enqueue(new Message(ClusterAnalyzer.FormatRejectionMessage(rejection, c1, c2, c3)));
     }
 
     // **********************************************************************

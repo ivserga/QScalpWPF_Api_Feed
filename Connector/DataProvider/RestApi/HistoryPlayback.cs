@@ -548,6 +548,12 @@ namespace QScalp.Connector.RestApi
                     .DateTime
             };
 
+            int ask = _tmgr.AskPrice;
+            int bid = _tmgr.BidPrice;
+
+            if(ask > 0 && bid > 0 && (trade.IntPrice > ask || trade.IntPrice < bid))
+                return;
+
             _tmgr.PutLastPrice(trade.IntPrice);
             _receiver.PutTrade(_secKey, trade);
         }

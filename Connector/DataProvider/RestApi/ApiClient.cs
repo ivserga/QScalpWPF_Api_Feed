@@ -4,6 +4,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,12 +27,15 @@ namespace QScalp.Connector.RestApi
         public ApiClient(string baseUrl, string apiKey)
         {
             _baseUrl = baseUrl.TrimEnd('/');
-            _http = new HttpClient();
+
+            var handler = new HttpClientHandler();
+            handler.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            _http = new HttpClient(handler);
             
             if (!string.IsNullOrEmpty(apiKey))
                 _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
             
-            // Увеличенный таймаут для загрузки больших объёмов исторических данных
+            _http.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
             _http.Timeout = TimeSpan.FromMinutes(5);
         }
         
@@ -59,8 +65,9 @@ namespace QScalp.Connector.RestApi
         }
 
         /// <summary> Загружает все страницы quotes по next_url. Для исторического режима (полный день). </summary>
-        public async Task<QuoteResult[]> FetchAllQuotesAsync(string ticker, string timestampParam, int limit = 5000)
+        public async Task<QuoteResult[]> FetchAllQuotesAsync(string ticker, string timestampParam, int limit = 50000)
         {
+            var totalSw = Stopwatch.StartNew();
             var url = BuildUrl($"/v3/quotes/{ticker}", timestampParam, limit);
             var list = new List<QuoteResult>();
             int pageNum = 0;
@@ -79,19 +86,21 @@ namespace QScalp.Connector.RestApi
                 {
                     list.AddRange(r.Results);
                     pageNum++;
-                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
                     if (pageNum % 50 == 0)
                         LoadProgress?.Invoke("quotes", list.Count);
                 }
             }
             
+            totalSw.Stop();
+            ApiLog.Write($"QUOTES TOTAL: {pageNum} pages, {list.Count:N0} records, {totalSw.Elapsed.TotalSeconds:F1}s");
             LoadProgress?.Invoke("quotes", list.Count);
             return list.ToArray();
         }
 
         /// <summary> Загружает все страницы trades по next_url. Для исторического режима (полный день). </summary>
-        public async Task<TradeResult[]> FetchAllTradesAsync(string ticker, string timestampParam, int limit = 5000)
+        public async Task<TradeResult[]> FetchAllTradesAsync(string ticker, string timestampParam, int limit = 50000)
         {
+            var totalSw = Stopwatch.StartNew();
             var url = BuildUrl($"/v3/trades/{ticker}", timestampParam, limit);
             var list = new List<TradeResult>();
             int pageNum = 0;
@@ -110,12 +119,13 @@ namespace QScalp.Connector.RestApi
                 {
                     list.AddRange(r.Results);
                     pageNum++;
-                    // Уведомляем о прогрессе каждые 50 страниц (~250K записей)
                     if (pageNum % 50 == 0)
                         LoadProgress?.Invoke("trades", list.Count);
                 }
             }
             
+            totalSw.Stop();
+            ApiLog.Write($"TRADES TOTAL: {pageNum} pages, {list.Count:N0} records, {totalSw.Elapsed.TotalSeconds:F1}s");
             LoadProgress?.Invoke("trades", list.Count);
             return list.ToArray();
         }
@@ -124,20 +134,39 @@ namespace QScalp.Connector.RestApi
 
         private async Task<T> GetAsync<T>(string url)
         {
-            System.Diagnostics.Debug.WriteLine($"[API] GET {url}");
-            var response = await _http.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonConvert.DeserializeObject<T>(json);
+            return await GetByUrlAsync<T>(url);
         }
 
         /// <summary> Запрос по абсолютному URL (для next_url пагинации). </summary>
         internal async Task<T> GetByUrlAsync<T>(string absoluteUrl)
         {
             if (string.IsNullOrEmpty(absoluteUrl)) return default(T);
-            var resp = await _http.GetAsync(absoluteUrl);
+            
+            var sw = Stopwatch.StartNew();
+            var resp = await _http.GetAsync(absoluteUrl, HttpCompletionOption.ResponseHeadersRead);
+            long httpMs = sw.ElapsedMilliseconds;
+            
             resp.EnsureSuccessStatusCode();
-            var json = await resp.Content.ReadAsStringAsync();
+            
+            string json;
+            using (var stream = await resp.Content.ReadAsStreamAsync())
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                json = await reader.ReadToEndAsync();
+            }
+            sw.Stop();
+            long totalMs = sw.ElapsedMilliseconds;
+            
+            long wireBytes = resp.Content.Headers.ContentLength ?? 0;
+            int jsonBytes = Encoding.UTF8.GetByteCount(json);
+            double jsonMB = jsonBytes / 1048576.0;
+            double speedMBs = totalMs > 0 ? jsonMB / (totalMs / 1000.0) : 0;
+            string compression = wireBytes > 0 && wireBytes < jsonBytes 
+                ? $"gzip {wireBytes / 1024.0:F0}KB->{jsonBytes / 1024.0:F0}KB ({(double)jsonBytes / wireBytes:F1}x)" 
+                : $"{jsonBytes / 1024.0:F0}KB";
+            
+            ApiLog.Write($"HTTP {(int)resp.StatusCode} | {totalMs,5}ms (http:{httpMs}ms read:{totalMs - httpMs}ms) | {compression} | eff {speedMBs:F2} MB/s | {absoluteUrl}");
+            
             return JsonConvert.DeserializeObject<T>(json);
         }
 
